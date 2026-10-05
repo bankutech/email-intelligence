@@ -49,9 +49,13 @@
             </div>
 
             <!-- Subject -->
-            <div class="mb-8">
+            <div class="mb-6">
               <h3 class="font-display font-bold text-2xl md:text-3xl text-nyalaslate mb-2">{{ email.subject || '(no subject)' }}</h3>
-              <p class="text-nyalaslate/60">From: <span class="text-nyalaslate font-medium">{{ email.sender_email || 'unknown sender' }}</span></p>
+              <p class="text-nyalaslate/60 mb-4">From: <span class="text-nyalaslate font-medium">{{ email.sender_email || 'unknown sender' }}</span></p>
+              <div v-if="email.reason" class="bg-nyalaslate/5 p-4 rounded-xl border border-nyalaslate/10">
+                <span class="text-xs font-bold text-nyalaslate/50 uppercase tracking-wider block mb-1">AI Reasoning</span>
+                <p class="text-sm text-nyalaslate/90 italic">"{{ email.reason }}"</p>
+              </div>
             </div>
 
             <!-- Actions -->

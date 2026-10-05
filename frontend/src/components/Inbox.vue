@@ -51,7 +51,8 @@
             </div>
             <div>
               <h5 class="text-xs font-bold text-nyalaslate/50 uppercase tracking-wider mb-2">AI Determination</h5>
-              <p class="text-sm text-nyalaslate">{{ email.category }}</p>
+              <p class="text-sm text-nyalaslate mb-2">Category: <strong>{{ email.category }}</strong></p>
+              <p v-if="email.reason" class="text-sm text-nyalaslate/80 italic border-l-2 border-nyalablue/30 pl-3">"{{ email.reason }}"</p>
             </div>
           </div>
         </div>
