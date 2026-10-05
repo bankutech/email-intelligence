@@ -135,7 +135,12 @@ class GmailReader:
 
     def _list_recent(self) -> list:
         ids, token = [], None
-        query = f"in:inbox newer_than:{self.lookback_days}d"
+        
+        # Calculate exactly 24 hours ago (or lookback_days)
+        import time
+        epoch_seconds = int(time.time()) - (self.lookback_days * 86400)
+        query = f"in:inbox after:{epoch_seconds}"
+        
         while len(ids) < 500:
             resp = self.client.call(lambda s: s.users().messages().list(
                 userId="me", q=query, maxResults=100, pageToken=token))

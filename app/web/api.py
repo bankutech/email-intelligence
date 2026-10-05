@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException, Depends, Response
+from fastapi import FastAPI, Request, HTTPException, Depends, Response, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -131,20 +131,24 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return db.recent(user_id=user_id, limit=100)
 
     @app.post("/api/scan")
-    def scan_emails(user_id: str = Depends(get_current_user)):
+    def scan_emails(background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user)):
         from app.ai.classifier import EmailClassifier, make_gemini_call
         from app.gmail.client import GmailClient
         from app.notify import Notifier
         from app.worker import Worker
         try:
-            classifier = EmailClassifier(make_gemini_call(cfg.gemini_api_key, cfg.gemini_model), model=cfg.gemini_model,
-                                         max_retries=cfg.llm_max_retries, base_delay=cfg.retry_base_delay)
-            worker = Worker(cfg, db, classifier, Notifier(cfg.notify_webhook_url))
             user = db.get_user(user_id)
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
-            count = worker.process_user(dict(user))
-            return {"success": True, "processed": count}
+                
+            def run_sync():
+                classifier = EmailClassifier(make_gemini_call(cfg.gemini_api_key, cfg.gemini_model), model=cfg.gemini_model,
+                                             max_retries=cfg.llm_max_retries, base_delay=cfg.retry_base_delay)
+                worker = Worker(cfg, db, classifier, Notifier(cfg.notify_webhook_url))
+                worker.process_user(dict(user))
+                
+            background_tasks.add_task(run_sync)
+            return {"success": True, "status": "syncing"}
         except HTTPException:
             raise
         except Exception:

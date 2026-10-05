@@ -24,10 +24,10 @@
       </div>
 
       <div class="flex flex-col items-start xl:items-end gap-4 shrink-0">
-        <button @click="scan" :disabled="scanning" class="ticket-btn-red px-6 py-3 font-mono font-bold uppercase tracking-widest text-sm gap-3">
-          <svg v-if="scanning" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+        <button @click="scan(true)" :disabled="isScanLoading || scanning" class="ticket-btn-red px-6 py-3 font-mono font-bold uppercase tracking-widest text-sm gap-3">
+          <svg v-if="isScanLoading || scanning" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
           <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          {{ scanning ? 'Scanning...' : 'Scan Mailroom' }}
+          {{ (isScanLoading || scanning) ? 'Syncing Gmail...' : 'Up to date' }}
         </button>
 
         <div class="border-2 border-ink bg-[#e8e0d0] p-3 relative shadow-[4px_4px_0_#15120E] w-60">
@@ -58,7 +58,7 @@
       <div class="absolute top-1/2 left-0 w-full h-px bg-ink/20"></div>
       <div class="absolute top-1/2 left-0 w-full border-t border-dashed border-ink/30"></div>
 
-      <div v-if="scanning" class="w-full h-full relative z-10">
+      <div v-if="isScanLoading || scanning" class="w-full h-full relative z-10">
         <div v-for="(env, i) in 3" :key="i" class="absolute top-1/2 left-0 w-40 h-24 bg-cream border-2 border-ink airmail-edge overflow-hidden flex flex-col justify-between p-1" :style="{ animation: `conveyor 3.5s linear ${i * 1.1}s infinite` }">
           <div class="airmail-edge h-1.5 w-full"></div>
           <div class="airmail-edge h-1.5 w-full"></div>
@@ -86,11 +86,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 
 const stats = ref(null)
 const emails = ref(null)
-const scanning = ref(false)
+const scanning = computed(() => (stats.value?.pending || 0) > 0)
 
 const automatedCount = computed(() => !stats.value ? 0 : (stats.value.total_processed || 0) - (stats.value.needs_review || 0))
 const reviewCount = computed(() => stats.value?.needs_review || 0)
@@ -113,17 +113,33 @@ const fetchData = async () => {
   } catch {}
 }
 
-const scan = async () => {
-  scanning.value = true
+const isScanLoading = ref(false)
+
+const scan = async (manual = false) => {
+  if (isScanLoading.value) return
+  isScanLoading.value = true
   try {
     const res = await fetch('/api/scan', { method: 'POST' })
-    if (res.ok) await fetchData()
+    if (res.ok && manual) {
+      setTimeout(fetchData, 3000)
+    }
   } finally {
-    scanning.value = false
+    isScanLoading.value = false
   }
 }
 
-onMounted(() => fetchData())
+let syncInterval
+onMounted(async () => {
+  await fetchData()
+  // Trigger background sync immediately after initial data loads
+  scan(false)
+  // Poll for new data every 10s while on dashboard
+  syncInterval = setInterval(fetchData, 10000)
+})
+
+onUnmounted(() => {
+  clearInterval(syncInterval)
+})
 </script>
 
 <style scoped>
