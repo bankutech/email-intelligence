@@ -15,12 +15,14 @@ def get_web_flow(cfg: Config, state: str = None) -> Flow:
         state=state
     )
 
-def get_auth_url(cfg: Config) -> tuple[str, str]:
+def get_auth_url(cfg: Config) -> tuple[str, str, str]:
     flow = get_web_flow(cfg)
     auth_url, state = flow.authorization_url(prompt='consent', access_type='offline')
-    return auth_url, state
+    return auth_url, state, getattr(flow, 'code_verifier', None)
 
-def exchange_code(cfg: Config, request_url: str, state: str) -> str:
+def exchange_code(cfg: Config, request_url: str, state: str, code_verifier: str = None) -> str:
     flow = get_web_flow(cfg, state=state)
+    if code_verifier:
+        flow.code_verifier = code_verifier
     flow.fetch_token(authorization_response=request_url)
     return flow.credentials.to_json()

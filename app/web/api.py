@@ -59,20 +59,24 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
 
     @app.get("/auth/google")
     async def auth_google():
-        url, state = get_auth_url(cfg)
+        url, state, code_verifier = get_auth_url(cfg)
         res = RedirectResponse(url)
-        res.set_cookie(key="oauth_state", value=state, httponly=True, max_age=600, samesite="lax", secure=not cfg.dashboard_host.startswith("127."))
+        secure = not cfg.dashboard_host.startswith("127.")
+        res.set_cookie(key="oauth_state", value=state, httponly=True, max_age=600, samesite="lax", secure=secure)
+        if code_verifier:
+            res.set_cookie(key="code_verifier", value=code_verifier, httponly=True, max_age=600, samesite="lax", secure=secure)
         return res
 
     @app.get("/auth/callback")
     async def auth_callback(request: Request, response: Response):
         try:
             stored_state = request.cookies.get("oauth_state")
+            code_verifier = request.cookies.get("code_verifier")
             url_state = request.query_params.get("state")
             if not stored_state or stored_state != url_state:
                 raise ValueError("OAuth state mismatch. Please try logging in again.")
                 
-            token_json = exchange_code(cfg, str(request.url), stored_state)
+            token_json = exchange_code(cfg, str(request.url), stored_state, code_verifier)
             # Validate token and get user email
             client = GmailClient(cfg.gmail_credentials_path, token_json_str=token_json)
             profile = client.call(lambda s: s.users().getProfile(userId='me'))
