@@ -170,7 +170,9 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         db.record_action(message_id, f"manual_{action}", f"User manually performed: {action}")
         return {"success": True}
 
-    app.mount("/assets", StaticFiles(directory=str(Path("frontend/dist/assets").resolve())), name="assets")
+    assets_path = Path("frontend/dist/assets").resolve()
+    if assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
