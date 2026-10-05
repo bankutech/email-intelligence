@@ -16,11 +16,18 @@ export default {
         warning: '#f59e0b',
         danger: '#ef4444',
         textMain: '#f8fafc',
-        textMuted: '#94a3b8'
+        textMuted: '#94a3b8',
+        cream: '#F1E9DA',
+        ink: '#15120E',
+        vermilion: '#FF4B1F',
+        airmail: '#2B4BFF',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        mono: ['"IBM Plex Mono"', 'JetBrains Mono', 'monospace'],
+        serif: ['"Instrument Serif"', 'serif'],
+        dispatchSans: ['"Instrument Sans"', 'sans-serif'],
+        hand: ['"Caveat"', 'cursive'],
       }
     },
   },

@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen flex flex-col">
     <!-- Navbar -->
-    <header class="border-b border-border bg-background sticky top-0 z-40">
+    <header v-if="user" class="border-b border-border bg-background sticky top-0 z-40">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-sm bg-primary text-white flex items-center justify-center font-bold">EI</div>
@@ -17,7 +17,7 @@
       </div>
     </header>
 
-    <main class="flex-1 flex w-full max-w-7xl mx-auto">
+    <main :class="['flex-1 flex w-full', user ? 'max-w-7xl mx-auto' : '']">
       <!-- Unauthenticated Hero -->
       <Hero v-if="!user && !loading" />
       

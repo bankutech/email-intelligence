@@ -193,3 +193,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return frontend_path.read_text(encoding="utf-8")
 
     return app
+
+    @app.get("/api/debug")
+    def debug_req(request: Request):
+        return {"cookies": dict(request.cookies)}
