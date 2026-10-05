@@ -58,7 +58,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return response
 
     @app.get("/auth/google")
-    async def auth_google():
+    def auth_google():
         url, state, code_verifier = get_auth_url(cfg)
         res = RedirectResponse(url)
         secure = not cfg.dashboard_host.startswith("127.")
@@ -67,7 +67,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return res
 
     @app.get("/auth/callback")
-    async def auth_callback(request: Request, response: Response):
+    def auth_callback(request: Request, response: Response):
         try:
             stored_cookie = request.cookies.get("oauth_state")
             if not stored_cookie:
@@ -99,7 +99,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             return HTMLResponse(f"OAuth Error: {e}", status_code=400)
 
     @app.post("/api/disconnect")
-    async def disconnect(response: Response, user_id: str = Depends(get_current_user)):
+    def disconnect(response: Response, user_id: str = Depends(get_current_user)):
         res = JSONResponse({"success": True})
         res.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=not cfg.dashboard_host.startswith("127."))
         # Wipe token from DB to force re-auth
@@ -107,7 +107,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return res
 
     @app.get("/api/me")
-    async def get_me(request: Request):
+    def get_me(request: Request):
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             return {"connected": False}
@@ -121,15 +121,15 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return {"connected": True, "email": user["email"]}
 
     @app.get("/api/dashboard")
-    async def get_dashboard(user_id: str = Depends(get_current_user)):
+    def get_dashboard(user_id: str = Depends(get_current_user)):
         return db.stats(user_id=user_id)
 
     @app.get("/api/emails")
-    async def get_emails(user_id: str = Depends(get_current_user)):
+    def get_emails(user_id: str = Depends(get_current_user)):
         return db.recent(user_id=user_id, limit=100)
 
     @app.post("/api/scan")
-    async def scan_emails(user_id: str = Depends(get_current_user)):
+    def scan_emails(user_id: str = Depends(get_current_user)):
         from app.ai.classifier import EmailClassifier, make_gemini_call
         from app.gmail.client import GmailClient
         from app.notify import Notifier
@@ -149,7 +149,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             raise HTTPException(status_code=500, detail="An internal error occurred during scanning.")
 
     @app.get("/api/settings")
-    async def get_settings(user_id: str = Depends(get_current_user)):
+    def get_settings(user_id: str = Depends(get_current_user)):
         user = db.get_user(user_id)
         settings = json.loads(user["settings"]) if user and user.get("settings") else {}
         return {
