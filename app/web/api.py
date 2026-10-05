@@ -124,7 +124,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
 
     @app.get("/api/dashboard")
     def get_dashboard(user_id: str = Depends(get_current_user)):
-        user = db.get_user(user_id)
+        user = dict(db.get_user(user_id)) if db.get_user(user_id) else {}
         stats = db.stats(user_id=user_id)
         stats["sync_status"] = user.get("sync_status")
         return stats
