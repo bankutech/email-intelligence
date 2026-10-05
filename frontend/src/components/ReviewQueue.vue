@@ -1,107 +1,98 @@
 <template>
-  <div class="space-y-6 max-w-5xl mx-auto">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-      <h2 class="text-xl font-semibold text-textMain">Review Queue</h2>
+  <div class="space-y-6 max-w-5xl mx-auto pb-12">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-12">
+      <h2 class="font-serif text-4xl text-ink">Review Queue</h2>
       
       <div v-if="selected.length > 0" class="flex items-center gap-3">
-        <span class="text-sm font-medium text-textMuted bg-surface px-3 py-1 rounded-full border border-border">{{ selected.length }} selected</span>
-        <button @click="bulkApprove" :disabled="processing" class="btn btn-success text-sm flex items-center gap-2">
+        <span class="font-mono text-xs uppercase tracking-widest bg-ink/10 text-ink px-3 py-1 border border-ink">{{ selected.length }} pinned</span>
+        <button @click="bulkApprove" :disabled="processing" class="ticket-btn bg-cream text-ink px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2 interactive">
           <svg v-if="processing" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-          Approve All
+          Approve Stack
         </button>
       </div>
     </div>
 
     <!-- Feedback Banners -->
-    <div v-if="errorMsg" class="p-4 bg-danger/10 border border-danger/20 rounded-md text-danger text-sm" role="alert">
-      {{ errorMsg }}
+    <div v-if="errorMsg" class="p-4 bg-vermilion/10 border-2 border-vermilion text-vermilion font-mono text-xs uppercase tracking-widest font-bold shadow-[4px_4px_0_#FF4B1F]" role="alert">
+      ERROR: {{ errorMsg }}
     </div>
-    <div v-if="successMsg" class="p-4 bg-success/10 border border-success/20 rounded-md text-success text-sm" role="status">
-      {{ successMsg }}
+    <div v-if="successMsg" class="p-4 bg-ink/10 border-2 border-ink text-ink font-mono text-xs uppercase tracking-widest font-bold shadow-[4px_4px_0_#15120E]" role="status">
+      SUCCESS: {{ successMsg }}
     </div>
 
-    <div v-if="loading" class="space-y-4">
-      <div class="h-24 bg-surfaceElevated animate-pulse rounded-lg" v-for="i in 3" :key="i"></div>
+    <div v-if="loading" class="flex flex-col gap-8 items-center mt-12 animate-pulse">
+       <div class="w-full max-w-md h-40 bg-ink/5 border-2 border-ink/20 transform rotate-[-2deg]"></div>
+       <div class="w-full max-w-md h-40 bg-ink/5 border-2 border-ink/20 transform rotate-[1deg] -mt-20"></div>
     </div>
     
-    <div v-else-if="reviewEmails.length === 0" class="panel p-12 text-center border-dashed border-2 border-border bg-transparent">
-      <svg class="w-12 h-12 mx-auto text-textMuted/40 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
-      <p class="text-lg font-medium text-textMain">Queue is empty</p>
-      <p class="text-textMuted mt-1">All emails have been processed.</p>
+    <div v-else-if="reviewEmails.length === 0" class="flex flex-col items-center justify-center py-20">
+      <span class="font-hand text-4xl text-ink/80 rotate-[-4deg] mb-8">Inbox zero. Go touch grass.</span>
     </div>
     
-    <div v-else class="space-y-4">
-      <!-- Desktop Table View -->
-      <div class="hidden md:block panel overflow-hidden">
-        <table class="w-full text-left text-sm whitespace-nowrap">
-          <thead class="bg-surfaceElevated border-b border-border">
-            <tr>
-              <th scope="col" class="p-4 w-4">
-                <input type="checkbox" :checked="selected.length === reviewEmails.length && reviewEmails.length > 0" @change="toggleAll" class="rounded border-border bg-background focus:ring-primary w-4 h-4" aria-label="Select all rows" />
-              </th>
-              <th scope="col" class="p-4 font-medium text-textMuted">Subject</th>
-              <th scope="col" class="p-4 font-medium text-textMuted">Category</th>
-              <th scope="col" class="p-4 font-medium text-textMuted">Confidence</th>
-              <th scope="col" class="p-4 font-medium text-textMuted text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-border">
-            <tr v-for="email in reviewEmails" :key="email.message_id" class="hover:bg-surfaceElevated/50 transition-colors" :class="{'bg-surfaceElevated/30': selected.includes(email.message_id)}">
-              <td class="p-4">
-                <input type="checkbox" :value="email.message_id" v-model="selected" class="rounded border-border bg-background focus:ring-primary w-4 h-4" :aria-label="'Select email ' + email.subject" />
-              </td>
-              <td class="p-4">
-                <div class="font-medium text-textMain truncate max-w-xs" :title="email.subject">{{ email.subject || '(no subject)' }}</div>
-                <div class="text-xs text-textMuted mt-0.5">{{ formatTime(email.updated_at) }}</div>
-              </td>
-              <td class="p-4">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-surface border border-border text-textMuted">{{ email.category }}</span>
-              </td>
-              <td class="p-4">
-                <div class="flex items-center gap-2">
-                  <div class="w-16 h-1.5 bg-surface rounded-full overflow-hidden">
-                    <div class="h-full bg-warning" :style="`width: ${(email.confidence || 0) * 100}%`"></div>
-                  </div>
-                  <span class="text-xs font-medium">{{ Math.round((email.confidence || 0) * 100) }}%</span>
-                </div>
-              </td>
-              <td class="p-4 text-right">
-                <button @click="reviewAction(email.message_id, 'approve')" :disabled="processing" class="btn btn-secondary text-xs">Approve</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <div v-else class="relative w-full max-w-2xl mx-auto flex flex-col items-center pb-24 stack-container perspective-1000">
+      <TransitionGroup name="paper-stack">
+        <div v-for="(email, index) in reviewEmails" :key="email.message_id" 
+          :class="['w-full transition-all duration-500 paper-card relative group', animatingCards[email.message_id] ? 'z-50' : '']"
+          :style="{
+             marginTop: index === 0 ? '0' : '-80px',
+             zIndex: reviewEmails.length - index,
+             transform: animatingCards[email.message_id] 
+                ? (animatingCards[email.message_id] === 'approve' ? 'translate(200px, 50px) rotate(15deg) opacity(0)' : 'translate(-200px, 50px) rotate(-15deg) opacity(0)') 
+                : `rotate(${(index % 2 === 0 ? -1 : 1) * (1 + index * 0.5)}deg) translateY(${index * 5}px) scale(${1 - index * 0.02})`
+          }">
+          
+          <div class="bg-cream border-2 border-ink shadow-[8px_8px_0_#15120E] p-6 relative flex flex-col gap-4 transform-style-3d group-hover:-translate-y-4 group-hover:rotate-0 transition-transform duration-300">
+            <!-- Pushpin -->
+            <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-vermilion shadow-[2px_4px_0_#15120E] border-2 border-ink z-10">
+              <div class="absolute inset-1 rounded-full bg-cream/30"></div>
+            </div>
 
-      <!-- Mobile Stacked Card View -->
-      <div class="md:hidden space-y-4">
-        <div class="flex items-center gap-2 px-1">
-          <input type="checkbox" id="selectAllMob" :checked="selected.length === reviewEmails.length && reviewEmails.length > 0" @change="toggleAll" class="rounded border-border bg-background focus:ring-primary w-4 h-4" />
-          <label for="selectAllMob" class="text-sm text-textMuted font-medium">Select All</label>
-        </div>
-        <div v-for="email in reviewEmails" :key="email.message_id" class="panel p-4 flex flex-col gap-3 transition-colors" :class="{'border-primary/50 bg-primary/5': selected.includes(email.message_id)}">
-          <div class="flex justify-between items-start gap-2">
-            <div class="flex items-start gap-3 overflow-hidden">
-              <input type="checkbox" :value="email.message_id" v-model="selected" class="rounded border-border bg-background focus:ring-primary w-4 h-4 mt-1 shrink-0" :aria-label="'Select email ' + email.subject" />
-              <div class="min-w-0">
-                <div class="font-medium text-textMain line-clamp-2 leading-snug">{{ email.subject || '(no subject)' }}</div>
-                <div class="text-xs text-textMuted mt-1">{{ formatTime(email.updated_at) }}</div>
+            <!-- Header -->
+            <div class="flex justify-between items-start border-b-2 border-ink border-dashed pb-4 pt-2">
+              <div class="flex items-center gap-3">
+                <input type="checkbox" :value="email.message_id" v-model="selected" class="interactive w-5 h-5 rounded-none border-2 border-ink text-vermilion focus:ring-0 bg-cream" />
+                <span class="font-mono text-xs font-bold uppercase tracking-widest bg-ink text-cream px-2 py-0.5">
+                  {{ email.category }}
+                </span>
+                <span class="font-hand text-vermilion text-lg leading-none -mt-2 rotate-[-5deg]">
+                  {{ Math.round((email.confidence || 0) * 100) }}% sure
+                </span>
+              </div>
+              <div class="font-mono text-xs tracking-widest text-ink/50">{{ formatTime(email.updated_at) }}</div>
+            </div>
+
+            <!-- Subject -->
+            <div class="pt-2 pb-4">
+              <h3 class="font-serif text-2xl md:text-3xl leading-tight text-ink">{{ email.subject || '(no subject)' }}</h3>
+              <p class="font-mono text-xs text-ink/70 mt-2 line-clamp-1">From: <span class="text-ink">{{ email.sender_email || 'unknown' }}</span></p>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex justify-between items-end pt-4 border-t-2 border-ink">
+              <span class="font-mono text-[10px] uppercase tracking-widest text-ink/40 w-1/3">Ref: {{ email.message_id.substring(0,8) }}</span>
+              <div class="flex gap-4">
+                <button @click="triggerAction(email.message_id, 'reject')" :disabled="processing || animatingCards[email.message_id]" class="ticket-btn-red px-6 py-2 font-mono font-bold text-xs uppercase tracking-widest interactive">
+                  Reject
+                </button>
+                <button @click="triggerAction(email.message_id, 'approve')" :disabled="processing || animatingCards[email.message_id]" class="ticket-btn px-6 py-2 font-mono font-bold text-xs uppercase tracking-widest bg-cream interactive">
+                  Approve
+                </button>
               </div>
             </div>
-            <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-surface border border-border text-textMuted shrink-0">{{ email.category }}</span>
-          </div>
-          <div class="flex justify-between items-end border-t border-border pt-3 mt-1">
-            <div class="flex items-center gap-2">
-              <div class="text-xs text-textMuted">Confidence</div>
-              <span class="text-xs font-medium text-warning">{{ Math.round((email.confidence || 0) * 100) }}%</span>
+
+            <!-- Stamp Overlay Animation -->
+            <div v-if="animatingCards[email.message_id]" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+              <div :class="['border-8 font-mono font-bold text-4xl md:text-6xl tracking-widest px-6 py-4 mix-blend-multiply rotate-[-15deg] animate-[stampThud_0.3s_cubic-bezier(0.175,0.885,0.32,1.275)_forwards]', animatingCards[email.message_id] === 'approve' ? 'border-ink text-ink' : 'border-vermilion text-vermilion']">
+                {{ animatingCards[email.message_id] === 'approve' ? 'APPROVED' : 'REJECTED' }}
+              </div>
             </div>
-            <button @click="reviewAction(email.message_id, 'approve')" :disabled="processing" class="btn btn-secondary text-xs px-3 py-1.5">Approve</button>
           </div>
         </div>
-      </div>
+      </TransitionGroup>
     </div>
   </div>
 </template>
+
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 
@@ -111,22 +102,16 @@ const processing = ref(false)
 const selected = ref([])
 const errorMsg = ref('')
 const successMsg = ref('')
+const animatingCards = ref({})
 
 const reviewEmails = computed(() => {
   return emails.value.filter(e => e.status === 'review')
 })
 
-const toggleAll = (e) => {
-  if (e.target.checked) {
-    selected.value = reviewEmails.value.map(em => em.message_id)
-  } else {
-    selected.value = []
-  }
-}
-
 const formatTime = (ts) => {
   if (!ts) return ''
-  return new Date(ts).toLocaleString()
+  const d = new Date(ts)
+  return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
 }
 
 const clearMsgs = () => {
@@ -151,6 +136,15 @@ const fetchEmails = async () => {
   }
 }
 
+const triggerAction = (id, action) => {
+  // Play local stamp animation first
+  animatingCards.value[id] = action
+  // Wait for stamp thud and slide away
+  setTimeout(() => {
+    reviewAction(id, action)
+  }, 600)
+}
+
 const reviewAction = async (id, action) => {
   processing.value = true
   clearMsgs()
@@ -161,11 +155,13 @@ const reviewAction = async (id, action) => {
       body: JSON.stringify({ action })
     })
     if (!res.ok) throw new Error('Action failed')
-    successMsg.value = 'Email approved successfully.'
+    // successMsg.value = `Email ${action}d successfully.`
     selected.value = selected.value.filter(s => s !== id)
-    await fetchEmails()
+    // Remove locally for snappier UI before refetch
+    emails.value = emails.value.filter(e => e.message_id !== id)
   } catch (e) {
     errorMsg.value = "Failed to apply action."
+    animatingCards.value[id] = null // Reset animation
   } finally {
     processing.value = false
   }
@@ -178,6 +174,12 @@ const bulkApprove = async () => {
   
   const total = selected.value.length
   let succeeded = 0
+  
+  // Trigger animation for all selected
+  selected.value.forEach(id => { animatingCards.value[id] = 'approve' })
+  
+  // Wait for animation
+  await new Promise(r => setTimeout(r, 600))
   
   try {
     const promises = selected.value.map(async (id) => {
@@ -196,17 +198,19 @@ const bulkApprove = async () => {
     succeeded = successfulIds.length
     selected.value = selected.value.filter(id => !successfulIds.includes(id))
     
+    emails.value = emails.value.filter(e => !successfulIds.includes(e.message_id))
+    
     if (succeeded === total) {
       successMsg.value = `Successfully approved all ${total} emails.`
     } else {
       errorMsg.value = `Partial failure: Approved ${succeeded} out of ${total} emails.`
     }
-    
-    await fetchEmails()
   } catch (e) {
-    errorMsg.value = "An unexpected error occurred during bulk approval."
+    errorMsg.value = "An error occurred during bulk approval."
   } finally {
     processing.value = false
+    // Clear animation states
+    animatingCards.value = {}
   }
 }
 
@@ -214,3 +218,55 @@ onMounted(() => {
   fetchEmails()
 })
 </script>
+
+<style scoped>
+.ticket-btn {
+  background-color: #F1E9DA;
+  border: 2px solid #15120E;
+  box-shadow: 4px 4px 0 #15120E;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ticket-btn:hover:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #15120E;
+}
+.ticket-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 #15120E;
+}
+.ticket-btn:disabled {
+  opacity: 0.5; cursor: not-allowed;
+}
+
+.ticket-btn-red {
+  background-color: #FF4B1F;
+  color: #F1E9DA;
+  border: 2px solid #15120E;
+  box-shadow: 4px 4px 0 #15120E;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ticket-btn-red:hover:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #15120E;
+}
+.ticket-btn-red:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 #15120E;
+}
+.ticket-btn-red:disabled {
+  opacity: 0.5; cursor: not-allowed;
+}
+
+@keyframes stampThud {
+  0% { transform: scale(1.5) rotate(-15deg); opacity: 0; }
+  60% { transform: scale(0.9) rotate(-15deg); opacity: 1; }
+  80% { transform: scale(1.05) rotate(-15deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-15deg); opacity: 1; }
+}
+
+.paper-stack-move { transition: transform 0.5s ease; }
+.paper-stack-enter-active { transition: all 0.5s ease; }
+.paper-stack-leave-active { transition: all 0.5s cubic-bezier(0.5, 0, 0, 1); position: absolute; }
+.paper-stack-enter-from { opacity: 0; transform: translateY(-50px) scale(0.9); }
+/* Leave animation is handled by inline styles mapped to animatingCards state before leaving */
+</style>
