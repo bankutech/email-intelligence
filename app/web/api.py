@@ -90,9 +90,9 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             
             db.upsert_user(user_id, email, token_json)
             
-            res = RedirectResponse("/")
+            res = RedirectResponse(cfg.google_redirect_uri.replace("/auth/callback", ""))
             token = session_signer.dumps(user_id)
-            res.set_cookie(key=SESSION_COOKIE, value=token, httponly=True, samesite="lax", secure=not cfg.dashboard_host.startswith("127."))
+            res.set_cookie(key=SESSION_COOKIE, value=token, httponly=True, max_age=86400 * 7, samesite="lax", secure=not cfg.dashboard_host.startswith("127."))
             res.delete_cookie("oauth_state")
             return res
         except Exception as e:
