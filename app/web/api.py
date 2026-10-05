@@ -62,18 +62,23 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         url, state, code_verifier = get_auth_url(cfg)
         res = RedirectResponse(url)
         secure = not cfg.dashboard_host.startswith("127.")
-        res.set_cookie(key="oauth_state", value=state, httponly=True, max_age=600, samesite="lax", secure=secure)
-        if code_verifier:
-            res.set_cookie(key="code_verifier", value=code_verifier, httponly=True, max_age=600, samesite="lax", secure=secure)
+        cookie_val = f"{state}|{code_verifier}" if code_verifier else state
+        res.set_cookie(key="oauth_state", value=cookie_val, httponly=True, max_age=600, samesite="lax", secure=secure)
         return res
 
     @app.get("/auth/callback")
     async def auth_callback(request: Request, response: Response):
         try:
-            stored_state = request.cookies.get("oauth_state")
-            code_verifier = request.cookies.get("code_verifier")
+            stored_cookie = request.cookies.get("oauth_state")
+            if not stored_cookie:
+                raise ValueError("Missing OAuth cookie. Please try logging in again.")
+            
+            parts = stored_cookie.split("|", 1)
+            stored_state = parts[0]
+            code_verifier = parts[1] if len(parts) > 1 else None
+            
             url_state = request.query_params.get("state")
-            if not stored_state or stored_state != url_state:
+            if stored_state != url_state:
                 raise ValueError("OAuth state mismatch. Please try logging in again.")
                 
             token_json = exchange_code(cfg, str(request.url), stored_state, code_verifier)
