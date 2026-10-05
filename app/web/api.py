@@ -124,7 +124,10 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
 
     @app.get("/api/dashboard")
     def get_dashboard(user_id: str = Depends(get_current_user)):
-        return db.stats(user_id=user_id)
+        user = db.get_user(user_id)
+        stats = db.stats(user_id=user_id)
+        stats["sync_status"] = user.get("sync_status")
+        return stats
 
     @app.get("/api/emails")
     def get_emails(user_id: str = Depends(get_current_user)):
@@ -140,6 +143,8 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             user = db.get_user(user_id)
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
+                
+            db.update_user_sync(user_id, "syncing")
                 
             def run_sync():
                 classifier = EmailClassifier(make_gemini_call(cfg.gemini_api_key, cfg.gemini_model), model=cfg.gemini_model,

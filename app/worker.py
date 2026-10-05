@@ -76,17 +76,21 @@ class Worker:
         
         # Discover
         try:
-            ids, history_id = self._gmail(reader.discover, "Gmail discovery")
+            stored_history_id = user.get("gmail_history_id")
+            ids, history_id = self._gmail(lambda: reader.discover(stored_history_id), "Gmail discovery")
             new = sum(1 for mid in ids if self.db.register_message(mid, user_id))
-            if history_id:
-                self.db.set_state(HISTORY_KEY.format(user_id=user_id), history_id)
+            if history_id and history_id != stored_history_id:
+                self.db.update_user_history(user_id, history_id)
             if new:
                 log.info("Discovered %d new email(s) for user %s", new, user_id)
+            self.db.update_user_sync(user_id, f"success_{new}")
         except GmailAuthError as exc:
             log.warning("Gmail auth error for user %s: %s", user_id, scrub_secrets(str(exc)))
+            self.db.update_user_sync(user_id, "auth_error", str(exc))
             return 0
         except GmailError as exc:
             log.error("Gmail discovery failed for user %s: %s", user_id, scrub_secrets(str(exc)))
+            self.db.update_user_sync(user_id, "error", str(exc))
             return 0
 
         # Process

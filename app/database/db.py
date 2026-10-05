@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     email         TEXT UNIQUE NOT NULL,
     token_json    TEXT NOT NULL,
     settings      TEXT NOT NULL DEFAULT '{}',
+    gmail_history_id TEXT,
+    last_successful_sync TEXT,
+    sync_status   TEXT,
+    sync_error    TEXT,
     created_at    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS emails (
@@ -103,6 +107,13 @@ class Database:
             self._conn.execute("PRAGMA foreign_keys=ON")
             if not read_only:
                 self._conn.executescript(SCHEMA)
+                try:
+                    self._conn.execute("ALTER TABLE users ADD COLUMN gmail_history_id TEXT")
+                    self._conn.execute("ALTER TABLE users ADD COLUMN last_successful_sync TEXT")
+                    self._conn.execute("ALTER TABLE users ADD COLUMN sync_status TEXT")
+                    self._conn.execute("ALTER TABLE users ADD COLUMN sync_error TEXT")
+                except sqlite3.OperationalError:
+                    pass
             else:
                 self._conn.execute("PRAGMA query_only=ON")
         except sqlite3.Error as exc:
@@ -154,6 +165,17 @@ class Database:
         
     def update_user_settings(self, user_id: str, settings: str):
         self._run("UPDATE users SET settings=? WHERE id=?", (settings, user_id))
+
+    def update_user_history(self, user_id: str, history_id: str):
+        self._run("UPDATE users SET gmail_history_id=? WHERE id=?", (history_id, user_id))
+
+    def update_user_sync(self, user_id: str, status: str, error: str = None):
+        if status and status.startswith("success"):
+            self._run("UPDATE users SET sync_status=?, last_successful_sync=?, sync_error=NULL WHERE id=?", 
+                      (status, utcnow_iso(), user_id))
+        else:
+            self._run("UPDATE users SET sync_status=?, sync_error=? WHERE id=?", 
+                      (status, error, user_id))
 
 
     # ------------------------------------------------------------ email lifecycle
