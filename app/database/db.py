@@ -289,6 +289,7 @@ class Database:
         params = (user_id, limit) if user_id else (limit,)
         rows = self._run(
             f"SELECT e.message_id, e.subject, e.processing_status AS status, e.updated_at, "
+            f"e.sender AS sender_email, e.email_timestamp, "
             f"c.category, c.priority, c.confidence, "
             f"(SELECT group_concat(a.action || CASE WHEN a.detail != '' THEN ':' || a.detail ELSE '' END, ', ') "
             f" FROM actions a WHERE a.message_id = e.message_id AND a.success = 1) AS actions "
