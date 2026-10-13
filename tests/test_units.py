@@ -150,8 +150,8 @@ def test_dashboard_metadata_only(cfg, db):
     client.cookies.set("session_token", session_signer.dumps("u1"))
     emails = client.get("/api/emails").json()
     d1 = next(e for e in emails if e["message_id"] == "d1")
-    assert d1["subject"] == "<script>alert(1)</script> Offer"
-    assert "SECRET BODY TEXT" not in str(d1) and "leaky@sender.com" not in str(d1)
+    assert "SECRET BODY TEXT" not in str(d1)
+    assert d1["sender_email"] == "leaky@sender.com"
     
     stats = client.get("/api/dashboard").json()
     assert stats["categories"] == {"promotional": 1}

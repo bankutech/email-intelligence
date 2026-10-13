@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
-  "framework": "vite",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://email-automata-backend.onrender.com/api/:path*" },
     { "source": "/auth/:path*", "destination": "https://email-automata-backend.onrender.com/auth/:path*" }

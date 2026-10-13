@@ -98,18 +98,17 @@ class GmailReader:
         self.user_id = user_id
         self._history_key = f"gmail_history_id_{user_id}" if user_id else "gmail_history_id"
 
-    def discover(self) -> tuple:
+    def discover(self, stored_history_id: str = None) -> tuple:
         """Return (new_message_ids, newest_history_id).
 
         Uses the Gmail history API from the stored historyId. On first run (or if the stored id
         expired, which Gmail reports as 404) it falls back to listing recent inbox mail.
         """
-        stored = self.db.get_state(self._history_key)
-        if not stored:
+        if not stored_history_id:
             profile = self.client.call(lambda s: s.users().getProfile(userId="me"))
             return self._list_recent(), str(profile["historyId"])
         try:
-            return self._history(stored)
+            return self._history(stored_history_id)
         except GmailNotFound:
             log.warning("Stored historyId expired; falling back to a recent-mail scan")
             profile = self.client.call(lambda s: s.users().getProfile(userId="me"))

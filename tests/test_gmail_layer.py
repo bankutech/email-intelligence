@@ -7,7 +7,7 @@ from app.gmail.actions import GmailActions
 from app.gmail.client import GmailAuthError, GmailClient, GmailError, GmailNotFound, GmailTransientError
 from app.gmail.reader import GmailReader
 
-HISTORY_KEY = "gmail_history_id"
+
 
 
 class Req:
@@ -83,17 +83,14 @@ def test_discover_uses_history_pagination_and_inbox_filter(db):
         {"history": [{"messagesAdded": [{"message": {"id": "b", "labelIds": ["INBOX"]}},
                                         {"message": {"id": "a", "labelIds": ["INBOX"]}}]}], "historyId": "650"},
     ]
-    db.set_state(HISTORY_KEY, "600")
-    assert GmailReader(FakeClient(svc), db).discover() == (["a", "b"], "650")
+    assert GmailReader(FakeClient(svc), db).discover("600") == (["a", "b"], "650")
 
 
 def test_discover_falls_back_when_history_expired(db):
     svc = FakeService()
     svc.history_exc = http_error(404)
-    db.set_state(HISTORY_KEY, "1")
     r = GmailReader(FakeClient(svc), db)
-    # FakeClient is a real GmailClient so HttpError(404) is mapped to GmailNotFound -> fallback scan
-    assert r.discover() == (["r1", "r2"], "500")
+    assert r.discover("1") == (["r1", "r2"], "500")
 
 
 def test_labels_created_once_then_cached_and_modify_payload():

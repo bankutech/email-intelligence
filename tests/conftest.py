@@ -36,7 +36,7 @@ class FakeReader:
         self.fetch_failures = []          # exceptions raised (in order) before a fetch succeeds
         self.fetch_calls = 0
 
-    def discover(self):
+    def discover(self, stored_history_id=None):
         return list(self.emails), "100"
 
     def fetch_email(self, mid):

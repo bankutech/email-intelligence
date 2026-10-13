@@ -7,19 +7,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        cream: '#F1E9DA',
-        ink: '#15120E',
-        vermilion: '#FF4B1F',
-        airmail: '#2B4BFF',
+        nyalablue: '#0C49A2',
+        nyalaslate: '#32373c',
+        nyalawhite: '#ffffff',
+        nyalbg: '#f8fafc',
         success: '#16a34a',
         danger: '#dc2626',
       },
       fontFamily: {
-        serif: ['"Instrument Serif"', 'serif'],
-        dispatchSans: ['"Instrument Sans"', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'monospace'],
-        hand: ['"Caveat"', 'cursive'],
+        sans: ['"Heebo"', 'sans-serif'],
+        display: ['"Syne"', 'sans-serif'],
       },
+      animation: {
+        'slide-up': 'slideUp 0.8s ease-out forwards',
+      },
+      keyframes: {
+        slideUp: {
+          '0%': { transform: 'translateY(40px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+      }
     },
   },
   plugins: [],
