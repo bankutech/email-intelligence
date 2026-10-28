@@ -16,7 +16,7 @@
       "destination": "/api/index.py?__path__=auth/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/|api/|auth/|favicon\\.ico).*)",
       "destination": "/index.html"
     }
   ],
