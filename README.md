@@ -76,6 +76,8 @@ The application is configured to deploy both the Vue 3 frontend and FastAPI back
 In your Vercel Project Settings → **Environment Variables**, configure:
 - `SESSION_SECRET_KEY`: A cryptographically secure random string (minimum 32 characters).
 - `GEMINI_API_KEY`: Your Google AI Studio API key.
+- `GOOGLE_CLIENT_ID`: Your Google OAuth Client ID (from Google Cloud Console).
+- `GOOGLE_CLIENT_SECRET`: Your Google OAuth Client Secret.
 - `GOOGLE_REDIRECT_URI`: Set to `https://<your-vercel-domain>.vercel.app/auth/callback` (and add this exact URL to your Google Cloud Console Authorized Redirect URIs).
 - `CRON_SECRET`: (Optional) Secret key to protect the `/api/cron` background polling endpoint.
 - `DATABASE_PATH`: Defaults to `/tmp/emails.db` on Vercel serverless.

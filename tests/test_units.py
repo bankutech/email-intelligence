@@ -697,3 +697,76 @@ def test_vercel_cron_endpoint(db, cfg, monkeypatch):
     assert data["status"] in ("success", "skipped")
 
 
+def test_has_google_credentials_detection(tmp_path):
+    """Verify credentials detection via env vars, json string, or file path."""
+    from app.config import Config
+    from app.web.auth import has_google_credentials
+
+    # Case 1: No credentials
+    cfg_empty = Config(gmail_credentials_path=str(tmp_path / "nonexistent.json"))
+    assert has_google_credentials(cfg_empty) is False
+
+    # Case 2: Environment variables client_id + client_secret
+    cfg_env = Config(
+        gmail_credentials_path=str(tmp_path / "nonexistent.json"),
+        google_client_id="my-client-id.apps.googleusercontent.com",
+        google_client_secret="my-secret"
+    )
+    assert has_google_credentials(cfg_env) is True
+
+    # Case 3: Raw JSON string in environment
+    cfg_json = Config(
+        gmail_credentials_path=str(tmp_path / "nonexistent.json"),
+        google_credentials_json='{"web": {"client_id": "cid", "client_secret": "sec"}}'
+    )
+    assert has_google_credentials(cfg_json) is True
+
+    # Case 4: File on disk
+    cred_file = tmp_path / "creds.json"
+    cred_file.write_text('{"web": {}}')
+    cfg_file = Config(gmail_credentials_path=str(cred_file))
+    assert has_google_credentials(cfg_file) is True
+
+
+def test_get_web_flow_from_env_vars():
+    """Verify get_web_flow initializes Flow from GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."""
+    from app.config import Config
+    from app.web.auth import get_web_flow
+
+    cfg = Config(
+        gmail_credentials_path="nonexistent.json",
+        google_client_id="12345.apps.googleusercontent.com",
+        google_client_secret="secret_abc",
+        google_redirect_uri="https://email-automata-six.vercel.app/auth/callback"
+    )
+    flow = get_web_flow(cfg, state="test_state_123")
+    url, state = flow.authorization_url()
+    assert "accounts.google.com" in url
+    assert "12345.apps.googleusercontent.com" in url
+    assert state == "test_state_123"
+
+
+def test_auth_google_missing_credentials_returns_help_page(db, tmp_path):
+    """When credentials are missing, /auth/google returns the friendly HTML guidance page."""
+    from fastapi.testclient import TestClient
+    from app.config import Config
+    from app.web.api import create_app
+
+    cfg_no_creds = Config(
+        gmail_credentials_path=str(tmp_path / "absent.json"),
+        google_client_id="",
+        google_client_secret="",
+        google_credentials_json="",
+        google_redirect_uri="https://email-automata-six.vercel.app/auth/callback"
+    )
+    app = create_app(cfg_no_creds, db=db)
+    client = TestClient(app)
+
+    res = client.get("/auth/google")
+    assert res.status_code == 400
+    assert "Google OAuth Credentials Missing" in res.text
+    assert "https://email-automata-six.vercel.app/auth/callback" in res.text
+    assert "GOOGLE_CLIENT_ID" in res.text
+
+
+

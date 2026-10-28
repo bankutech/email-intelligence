@@ -18,7 +18,7 @@ from app.gmail.client import GmailClient, GmailAuthError
 from app.models import CATEGORIES
 from app.rules.decision_engine import CATEGORY_LABELS
 from app.utils import utcnow_iso
-from app.web.auth import get_auth_url, exchange_code
+from app.web.auth import get_auth_url, exchange_code, has_google_credentials
 
 log = logging.getLogger(__name__)
 _active_sync_users = set()
@@ -195,39 +195,59 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
     @app.get("/auth/google")
     @app.get("/google")
     def auth_google(request: Request):
-        if not Path(cfg.gmail_credentials_path).exists():
+        if not has_google_credentials(cfg):
+            redirect_uri_val = cfg.google_redirect_uri
             return HTMLResponse(
-                """
+                f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <title>Google Credentials Required - Email Automata</title>
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-                        .card { background: #1e293b; padding: 2rem 2.5rem; border-radius: 1rem; max-width: 620px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #334155; }
-                        h1 { color: #f43f5e; margin-top: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 8px; }
-                        p { line-height: 1.6; color: #94a3b8; }
-                        code { background: #0f172a; color: #38bdf8; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-size: 0.9em; font-family: monospace; }
-                        ol { color: #cbd5e1; padding-left: 1.2rem; line-height: 1.8; }
-                        a { color: #38bdf8; text-decoration: none; }
-                        a:hover { text-decoration: underline; }
-                        .actions { margin-top: 2rem; display: flex; gap: 12px; flex-wrap: wrap; }
-                        .btn { display: inline-block; padding: 0.75rem 1.5rem; background: #2563eb; color: #fff; border-radius: 9999px; font-weight: 500; text-decoration: none; }
-                        .btn-sec { background: #334155; }
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }}
+                        .card {{ background: #1e293b; padding: 2rem 2.5rem; border-radius: 1rem; max-width: 680px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #334155; }}
+                        h1 {{ color: #f43f5e; margin-top: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 8px; }}
+                        p {{ line-height: 1.6; color: #94a3b8; }}
+                        code {{ background: #0f172a; color: #38bdf8; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-size: 0.9em; font-family: monospace; word-break: break-all; }}
+                        .section-title {{ font-weight: 600; color: #e2e8f0; margin-top: 1.25rem; margin-bottom: 0.5rem; }}
+                        ol, ul {{ color: #cbd5e1; padding-left: 1.2rem; line-height: 1.8; }}
+                        a {{ color: #38bdf8; text-decoration: none; }}
+                        a:hover {{ text-decoration: underline; }}
+                        .box {{ background: #0f172a; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.75rem 1rem; margin: 0.5rem 0; font-family: monospace; font-size: 0.85rem; color: #a5f3fc; line-height: 1.6; }}
+                        .actions {{ margin-top: 2rem; display: flex; gap: 12px; flex-wrap: wrap; }}
+                        .btn {{ display: inline-block; padding: 0.75rem 1.5rem; background: #2563eb; color: #fff; border-radius: 9999px; font-weight: 500; text-decoration: none; }}
+                        .btn:hover {{ background: #1d4ed8; text-decoration: none; }}
+                        .btn-sec {{ background: #334155; }}
+                        .btn-sec:hover {{ background: #475569; }}
                     </style>
                 </head>
                 <body>
                     <div class="card">
                         <h1>&#9888; Google OAuth Credentials Missing</h1>
-                        <p>The application could not find <code>credentials.json</code> on this server.</p>
-                        <p>To connect your live Gmail inbox:</p>
+                        <p>The application could not find Google OAuth credentials via environment variables or <code>credentials.json</code> on this server.</p>
+                        
+                        <div class="section-title">Step 1: Authorized Redirect URI in Google Cloud Console</div>
                         <ol>
-                            <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console &rarr; Credentials</a>.</li>
-                            <li>Create an <strong>OAuth client ID</strong> (Application type: <strong>Web application</strong>).</li>
-                            <li>Add Authorized redirect URI: <code>http://localhost:5000/auth/callback</code> (or match your <code>GOOGLE_REDIRECT_URI</code>).</li>
-                            <li>Download the client secret JSON file and rename it to <code>credentials.json</code> in this project directory.</li>
+                            <li>Visit <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console &rarr; Credentials</a>.</li>
+                            <li>Open your <strong>OAuth 2.0 Client ID</strong> (Web application).</li>
+                            <li>Under <strong>Authorized redirect URIs</strong>, add this exact URL:
+                                <div class="box">{redirect_uri_val}</div>
+                            </li>
                         </ol>
+
+                        <div class="section-title">Step 2: Add Credentials to Application</div>
+                        <ul>
+                            <li><strong>Vercel / Cloud:</strong> In Vercel Project Settings &rarr; Environment Variables, add:
+                                <div class="box">
+                                    GOOGLE_CLIENT_ID = &lt;your-client-id&gt;<br>
+                                    GOOGLE_CLIENT_SECRET = &lt;your-client-secret&gt;<br>
+                                    GOOGLE_REDIRECT_URI = {redirect_uri_val}
+                                </div>
+                            </li>
+                            <li><strong>Local Development:</strong> Place <code>credentials.json</code> in this project folder or add the variables to <code>.env</code>.</li>
+                        </ul>
+
                         <div class="actions">
                             <a href="/auth/demo" class="btn">Explore Interactive Demo Workspace &rarr;</a>
                             <a href="/" class="btn btn-sec">&larr; Back to Dashboard</a>

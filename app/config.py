@@ -41,6 +41,9 @@ def _get_num(env, name, default, cast, lo, hi):
 class Config:
     gmail_credentials_path: str = "credentials.json"
     gmail_token_path: str = "token.json"
+    google_client_id: str = field(default="", repr=False)
+    google_client_secret: str = field(default="", repr=False)
+    google_credentials_json: str = field(default="", repr=False)
     gemini_api_key: str = field(default="", repr=False)
     gemini_model: str = "gemini-2.5-flash"
     poll_interval: int = 60
@@ -81,6 +84,9 @@ def load_config(env: Optional[Mapping[str, str]] = None, require_gemini: bool = 
     cfg = Config(
         gmail_credentials_path=s("GMAIL_CREDENTIALS_PATH", "credentials.json"),
         gmail_token_path=s("GMAIL_TOKEN_PATH", "token.json"),
+        google_client_id=s("GOOGLE_CLIENT_ID", ""),
+        google_client_secret=s("GOOGLE_CLIENT_SECRET", ""),
+        google_credentials_json=s("GOOGLE_CREDENTIALS_JSON", "") or s("GMAIL_CREDENTIALS_JSON", ""),
         gemini_api_key=s("GEMINI_API_KEY", ""),
         gemini_model=s("GEMINI_MODEL", "gemini-2.5-flash"),
         poll_interval=_get_num(env, "POLL_INTERVAL", 60, int, 5, 86400),

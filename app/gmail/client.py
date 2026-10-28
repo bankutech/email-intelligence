@@ -38,16 +38,39 @@ class GmailNotFound(GmailError):
 
 def authorize(credentials_path: str, token_path: str, redirect_uri: str = "http://localhost:8000/auth/callback") -> None:
     """Interactive one-time OAuth flow. Writes the token file."""
+    import base64
+    import json
     from google_auth_oauthlib.flow import Flow
     import webbrowser
     import os
 
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-    if not Path(credentials_path).exists():
-        raise GmailAuthError(f"OAuth client file not found: {credentials_path}")
-    
-    flow = Flow.from_client_secrets_file(credentials_path, SCOPES, redirect_uri=redirect_uri)
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON") or os.environ.get("GMAIL_CREDENTIALS_JSON")
+
+    if client_id and client_secret:
+        client_config = {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        }
+        flow = Flow.from_client_config(client_config, SCOPES, redirect_uri=redirect_uri)
+    elif creds_json:
+        try:
+            cfg_dict = json.loads(creds_json)
+        except Exception:
+            cfg_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
+        flow = Flow.from_client_config(cfg_dict, SCOPES, redirect_uri=redirect_uri)
+    elif Path(credentials_path).exists():
+        flow = Flow.from_client_secrets_file(credentials_path, SCOPES, redirect_uri=redirect_uri)
+    else:
+        raise GmailAuthError(f"OAuth credentials not found (checked {credentials_path} and GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)")
     auth_url, _ = flow.authorization_url(prompt='consent')
     print(f"\n1. Please visit this URL to authorize:\n{auth_url}\n")
     print(f"2. After authorizing, you will be redirected to a URL that starts with {redirect_uri}")
