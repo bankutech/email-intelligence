@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/cron",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?__path__=cron"
     },
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?__path__=$1"
     },
     {
       "source": "/auth/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?__path__=auth/$1"
     },
     {
       "source": "/(.*)",
@@ -23,7 +23,7 @@
   "crons": [
     {
       "path": "/api/cron",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 9 * * *"
     }
   ],
   "headers": [

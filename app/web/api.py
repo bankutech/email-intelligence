@@ -152,6 +152,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return response
 
     @app.get("/api/health")
+    @app.get("/health")
     def health_check():
         db_ok = False
         try:
@@ -172,6 +173,14 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             status_code=status_code
         )
 
+    @app.api_route("/api/index.py", methods=["GET", "POST"])
+    def vercel_entrypoint_debug(request: Request):
+        return {
+            "path": request.url.path,
+            "scope_path": request.scope.get("path"),
+            "headers": dict(request.headers)
+        }
+
 
     def _is_cookie_secure(req: Request) -> bool:
         forwarded = req.headers.get("x-forwarded-proto", "").lower()
@@ -184,6 +193,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return False
 
     @app.get("/auth/google")
+    @app.get("/google")
     def auth_google(request: Request):
         if not Path(cfg.gmail_credentials_path).exists():
             return HTMLResponse(
@@ -242,6 +252,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             return HTMLResponse(f"OAuth Initialization Error: {e}", status_code=500)
 
     @app.get("/auth/demo")
+    @app.get("/demo")
     def auth_demo(request: Request):
         user_id = "demo@example.com"
         user = db.get_user(user_id)
@@ -254,6 +265,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return res
 
     @app.post("/api/demo/reset")
+    @app.post("/demo/reset")
     def reset_demo_endpoint(user_id: str = Depends(get_current_user)):
         if user_id != "demo@example.com":
             raise HTTPException(status_code=403, detail="Reset is only permitted in Demo workspace")
@@ -262,6 +274,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return {"success": True, "message": "Demo workspace successfully reset to initial state"}
 
     @app.get("/auth/callback")
+    @app.get("/callback")
     def auth_callback(request: Request, response: Response):
         try:
             oauth_error = request.query_params.get("error")
@@ -386,6 +399,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             """, status_code=400)
 
     @app.post("/api/disconnect")
+    @app.post("/disconnect")
     def disconnect(request: Request, response: Response, user_id: str = Depends(get_current_user)):
         res = JSONResponse({"success": True})
         res.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=_is_cookie_secure(request), path="/")
@@ -393,6 +407,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return res
 
     @app.get("/api/me")
+    @app.get("/me")
     def get_me(request: Request):
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
@@ -415,6 +430,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         }
 
     @app.get("/api/dashboard")
+    @app.get("/dashboard")
     def get_dashboard(user_id: str = Depends(get_current_user)):
         user = dict(db.get_user(user_id)) if db.get_user(user_id) else {}
         stats = db.stats(user_id=user_id)
@@ -423,10 +439,12 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return stats
 
     @app.get("/api/emails")
+    @app.get("/emails")
     def get_emails(user_id: str = Depends(get_current_user)):
         return db.recent(user_id=user_id, limit=100)
 
     @app.get("/api/emails/{message_id}")
+    @app.get("/emails/{message_id}")
     def get_email_details(message_id: str, user_id: str = Depends(get_current_user)):
         detail = db.get_email_detail(message_id, user_id=user_id)
         if not detail:
@@ -434,6 +452,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return detail
 
     @app.post("/api/scan")
+    @app.post("/scan")
     def scan_emails(background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user)):
         from app.ai.classifier import EmailClassifier, make_gemini_call
         from app.gmail.client import GmailClient
@@ -473,7 +492,9 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
             raise HTTPException(status_code=500, detail="An internal error occurred during scanning.")
 
     @app.get("/api/cron")
+    @app.get("/cron")
     @app.post("/api/cron")
+    @app.post("/cron")
     def vercel_cron_handler(request: Request):
         cron_secret = os.getenv("CRON_SECRET")
         if cron_secret:
@@ -517,6 +538,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         }
 
     @app.get("/api/settings")
+    @app.get("/settings")
     def get_settings(user_id: str = Depends(get_current_user)):
         user = db.get_user(user_id)
         u = dict(user) if user else {}
@@ -529,6 +551,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         }
 
     @app.post("/api/settings")
+    @app.post("/settings")
     async def update_settings(request: Request, user_id: str = Depends(get_current_user)):
         data = await request.json()
         validated = UserSettingsPayload(**data)
@@ -536,6 +559,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
         return {"success": True}
         
     @app.post("/api/emails/{message_id}/review")
+    @app.post("/emails/{message_id}/review")
     async def review_email(message_id: str, request: Request, user_id: str = Depends(get_current_user)):
         data = await request.json()
         action = data.get("action", "approve")
