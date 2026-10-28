@@ -351,3 +351,349 @@ def test_concurrent_message_claiming(db, cfg):
     # Worker 3 comes along and re-claims the stalled message
     attempts3 = db.claim("msg123", max_attempts=5)
     assert attempts3 == 2, "Third worker should successfully reclaim the crashed message with attempts incremented"
+
+
+def test_manual_review_change_category(db, cfg):
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, session_signer
+    from app.models import Email, Classification
+
+    db.upsert_user("u_rev@test.com", "u_rev@test.com", "{}")
+    db.register_message("rev_msg_1", "u_rev@test.com")
+    db.claim("rev_msg_1", 5)
+    e = Email(message_id="rev_msg_1", user_id="u_rev@test.com", thread_id="th1", sender="x@y.com", subject="Test review", body="Body")
+    db.save_email_metadata("rev_msg_1", e)
+    db.save_classification("rev_msg_1", Classification("spam", "low", 0.65, "low confidence"), [])
+    db.set_status("rev_msg_1", "review")
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+    client.cookies.set("session_token", session_signer.dumps("u_rev@test.com"))
+
+    # Test change category to 'work'
+    res = client.post("/api/emails/rev_msg_1/review", json={"action": "change_category", "new_category": "work"})
+    assert res.status_code == 200
+    assert res.json()["success"] is True
+
+    # Verify classification in DB is now work with 1.0 confidence
+    recent = db.recent(user_id="u_rev@test.com")
+    assert recent[0]["category"] == "work"
+    assert recent[0]["status"] == "done"
+    assert recent[0]["confidence"] == 1.0
+
+
+def test_get_email_details_endpoint(db, cfg):
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, session_signer
+    from app.models import Email, Classification
+
+    db.upsert_user("u_det@test.com", "u_det@test.com", "{}")
+    db.register_message("det_msg_1", "u_det@test.com")
+    e = Email(message_id="det_msg_1", user_id="u_det@test.com", thread_id="th_det", sender="sender@test.com", subject="Detail Subject", body="Snippet")
+    db.save_email_metadata("det_msg_1", e)
+    db.save_classification("det_msg_1", Classification("urgent", "high", 0.97, "critical issue"), ["link_check"])
+    db.record_action("det_msg_1", "label", "AI-URGENT")
+    db.set_status("det_msg_1", "done")
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+    client.cookies.set("session_token", session_signer.dumps("u_det@test.com"))
+
+    res = client.get("/api/emails/det_msg_1")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["message_id"] == "det_msg_1"
+    assert data["subject"] == "Detail Subject"
+    assert len(data["classifications"]) >= 1
+    assert data["classifications"][0]["category"] == "urgent"
+    assert len(data["actions_history"]) >= 1
+    assert data["actions_history"][0]["action"] == "label"
+
+
+def test_demo_reset_authorization(db, cfg):
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, session_signer
+
+    db.upsert_user("regular@test.com", "regular@test.com", "{}")
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    # Regular user cannot reset demo
+    client.cookies.set("session_token", session_signer.dumps("regular@test.com"))
+    res = client.post("/api/demo/reset")
+    assert res.status_code == 403
+
+    # Demo user can reset
+    db.upsert_user("demo@example.com", "demo@example.com", "{}")
+    client.cookies.set("session_token", session_signer.dumps("demo@example.com"))
+    res = client.post("/api/demo/reset")
+    assert res.status_code == 200
+    assert res.json()["success"] is True
+    # Verify demo emails seeded
+    demo_emails = db.recent(user_id="demo@example.com")
+    assert len(demo_emails) >= 5
+
+
+def test_oauth_states_storage_lifecycle(db):
+    """Verify DB-backed OAuth state storage, TTL check, and single-use consumption."""
+    import datetime
+
+    # 1. Save and consume state
+    db.save_oauth_state("state_abc_1", "verifier_xyz_1")
+    consumed = db.consume_oauth_state("state_abc_1")
+    assert consumed is not None
+    assert consumed["code_verifier"] == "verifier_xyz_1"
+
+    # 2. Replay attack protection: second consumption must return None
+    assert db.consume_oauth_state("state_abc_1") is None
+
+    # 3. Expired state protection (> 15 minutes)
+    expired_time = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=20)).isoformat().replace("+00:00", "Z")
+    db._run("INSERT INTO oauth_states(state, code_verifier, created_at) VALUES(?, ?, ?)", ("old_state", "old_v", expired_time))
+    assert db.consume_oauth_state("old_state") is None
+
+
+def test_oauth_callback_fallback_without_cookie(db, cfg, monkeypatch):
+    """Verify OAuth callback succeeds when browser cookies are missing (127.0.0.1 vs localhost or Safari ITP)."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, SESSION_COOKIE
+
+    # Pre-populate state in DB
+    db.save_oauth_state("valid_url_state", "code_verifier_123")
+
+    # Mock exchange_code and GmailClient
+    import app.web.api as api_mod
+    monkeypatch.setattr(api_mod, "exchange_code", lambda c, u, s, v: '{"access_token": "mock_token"}')
+
+    class MockProfileReq:
+        def execute(self):
+            return {"emailAddress": "user_oauth@example.com"}
+
+    class MockUsers:
+        def getProfile(self, **kwargs):
+            return MockProfileReq()
+
+    class MockService:
+        def users(self):
+            return MockUsers()
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def call(self, fn):
+            res = fn(MockService())
+            return res.execute() if hasattr(res, "execute") else res
+
+    monkeypatch.setattr(api_mod, "GmailClient", MockClient)
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    # Call callback with NO oauth_state cookie at all
+    res = client.get("/auth/callback?state=valid_url_state&code=mock_code", follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/"
+    assert SESSION_COOKIE in res.cookies
+
+    # State in DB must now be consumed
+    assert db.consume_oauth_state("valid_url_state") is None
+
+    # User must now exist in DB
+    user = db.get_user("user_oauth@example.com")
+    assert user is not None
+    assert "mock_token" in user["token_json"]
+
+
+def test_oauth_callback_invalid_state_renders_notice(db, cfg):
+    """Verify that an invalid or expired state returns 400 with helpful guidance instead of 500 error."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    res = client.get("/auth/callback?state=random_unrecognized_state&code=some_code")
+    assert res.status_code == 400
+    assert "OAuth Authentication Notice" in res.text
+    assert "Invalid, mismatched, or expired OAuth state" in res.text
+
+
+def test_token_encryption_at_rest(db):
+    """Verify that user OAuth tokens are encrypted at rest in SQLite and decrypted on retrieval."""
+    raw_secret_token = '{"access_token": "ya29.secret_live_access_token", "refresh_token": "1//secret_refresh_token"}'
+    db.upsert_user("u_enc@example.com", "u_enc@example.com", raw_secret_token)
+    
+    # 1. Direct raw SQL check on the database table
+    raw_row = db._run("SELECT token_json FROM users WHERE id=?", ("u_enc@example.com",), "one")
+    stored_in_db = raw_row["token_json"]
+    
+    # Raw token MUST NOT appear in plaintext in the DB file
+    assert "secret_live_access_token" not in stored_in_db
+    assert "secret_refresh_token" not in stored_in_db
+    assert stored_in_db.startswith("enc:")
+    
+    # 2. Method retrieval get_user MUST decrypt it transparently
+    user = db.get_user("u_enc@example.com")
+    assert user is not None
+    assert user["token_json"] == raw_secret_token
+    
+    # 3. Method get_users MUST also decrypt transparently
+    all_users = db.get_users()
+    matched = next(u for u in all_users if u["id"] == "u_enc@example.com")
+    assert matched["token_json"] == raw_secret_token
+
+
+def test_health_check_endpoint(db, cfg):
+    """Verify that /api/health reports healthy database connectivity and timestamp."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    res = client.get("/api/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "healthy"
+    assert data["database"] == "connected"
+    assert "timestamp" in data
+    assert data["version"] == "1.0.0"
+
+
+def test_csrf_cross_site_rejection(db, cfg):
+    """Verify that state-changing requests with Sec-Fetch-Site: cross-site are rejected with 403."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, session_signer
+
+    db.upsert_user("csrf_user@test.com", "csrf_user@test.com", "{}")
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+    client.cookies.set("session_token", session_signer.dumps("csrf_user@test.com"))
+
+    # Attack simulation: malicious site initiates cross-site POST
+    res = client.post("/api/settings", json={"spam_policy": "label"}, headers={"sec-fetch-site": "cross-site"})
+    assert res.status_code == 403
+    assert "CSRF" in res.json()["detail"]
+
+
+def test_oauth_callback_user_denied_access(db, cfg):
+    """Verify that when a user declines consent, Google's error param is handled gracefully."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app
+
+    db.save_oauth_state("state_declined", "verifier_123")
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    res = client.get("/auth/callback?error=access_denied&error_description=User+declined+permission&state=state_declined")
+    assert res.status_code == 200
+    assert "Google Authorization Cancelled" in res.text
+    assert "User declined permission" in res.text
+    # State must be consumed
+    assert db.consume_oauth_state("state_declined") is None
+
+
+def test_worker_respects_user_settings(cfg, db):
+    """Verify that background worker applies user custom thresholds from user['settings']."""
+    import json
+    from app.models import Email, Classification
+    from app.worker import Worker
+    from app.notify import Notifier
+
+    # Setup user with custom 0.70 confidence threshold (server default is 0.85)
+    custom_settings = json.dumps({"confidence_threshold": 0.70, "spam_policy": "label", "dry_run": False})
+    db.upsert_user("custom_cfg@test.com", "custom_cfg@test.com", json.dumps({"access_token": "token"}))
+    db.update_user_settings("custom_cfg@test.com", custom_settings)
+
+    db.register_message("msg_cust_1", "custom_cfg@test.com")
+    email = Email(message_id="msg_cust_1", user_id="custom_cfg@test.com", thread_id="t1",
+                  sender="colleague@test.com", subject="Project Update", body="Work details", labels=["INBOX"])
+    db.save_email_metadata("msg_cust_1", email)
+
+    applied_actions = []
+    class FakeActions:
+        def __init__(self, client, dry_run=False):
+            self.dry_run = dry_run
+        def apply(self, mid, labels, remove_inbox=False):
+            applied_actions.append((mid, labels, remove_inbox))
+
+    class FakeReader:
+        def __init__(self, client, db, lookback, user_id): pass
+        def fetch_email(self, mid): return email
+
+    # LLM gives 0.75 confidence. (Server default 0.85 would force AI-REVIEW, but user threshold 0.70 auto-approves)
+    cls = Classification("work", "medium", 0.75, "Routine work update")
+    class FakeClassifier:
+        def classify(self, p): return cls
+
+    worker = Worker(cfg, db, FakeClassifier(), Notifier(""),
+                    reader_factory=FakeReader, actions_factory=FakeActions)
+    
+    worker.process_message("msg_cust_1", "custom_cfg@test.com", FakeReader(None, db, 1, "custom_cfg@test.com"), FakeActions(None))
+    
+    # Must be status 'done' (auto-handled) rather than 'review'
+    assert db.get_status("msg_cust_1") == "done"
+    assert applied_actions == [("msg_cust_1", ["AI-WORK"], False)]
+
+
+def test_review_email_applies_live_gmail_action(db, cfg, monkeypatch):
+    """Verify that human review approve/change_category executes live Gmail label action."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app, session_signer
+    from app.models import Email, Classification
+    import app.web.api as api_mod
+
+    user_email = "live_rev@test.com"
+    token_json = '{"access_token": "mock_live_token"}'
+    db.upsert_user(user_email, user_email, token_json)
+    db.register_message("live_msg_1", user_email)
+    email = Email(message_id="live_msg_1", user_id=user_email, thread_id="t_live", sender="sender@test.com", subject="Review Me", body="Body")
+    db.save_email_metadata("live_msg_1", email)
+    db.save_classification("live_msg_1", Classification("urgent", "high", 0.60, "Needs human check"), [])
+    db.set_status("live_msg_1", "review")
+
+    actions_called = []
+    class MockGmailActions:
+        def __init__(self, client, dry_run=False):
+            self.dry_run = dry_run
+        def apply(self, mid, labels, remove_inbox=False):
+            actions_called.append((mid, labels, remove_inbox))
+            return True
+
+    monkeypatch.setattr(api_mod, "GmailActions", MockGmailActions)
+
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+    client.cookies.set("session_token", session_signer.dumps(user_email))
+
+    # Test approve
+    res = client.post("/api/emails/live_msg_1/review", json={"action": "approve"})
+    assert res.status_code == 200
+    assert len(actions_called) == 1
+    assert actions_called[0] == ("live_msg_1", ["AI-URGENT"], False)
+
+
+def test_vercel_cron_endpoint(db, cfg, monkeypatch):
+    """Verify Vercel Cron endpoint authorization and execution."""
+    from fastapi.testclient import TestClient
+    from app.web.api import create_app
+
+    monkeypatch.setenv("CRON_SECRET", "super-secret-cron-key")
+    app = create_app(cfg, db=db)
+    client = TestClient(app)
+
+    # 1. Unauthorized invocation rejected
+    res = client.get("/api/cron")
+    assert res.status_code == 401
+
+    # 2. Wrong token rejected
+    res = client.get("/api/cron", headers={"authorization": "Bearer wrong-token"})
+    assert res.status_code == 401
+
+    # 3. Authorized invocation succeeds
+    res = client.get("/api/cron", headers={"authorization": "Bearer super-secret-cron-key"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] in ("success", "skipped")
+
+

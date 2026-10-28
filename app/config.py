@@ -73,6 +73,11 @@ def load_config(env: Optional[Mapping[str, str]] = None, require_gemini: bool = 
         v = env.get(name)
         return v.strip() if v and v.strip() else default
 
+    is_vercel = bool(env.get("VERCEL"))
+    default_db = "/tmp/emails.db" if is_vercel else "data/emails.db"
+    default_log = "/tmp/logs" if is_vercel else "logs"
+    default_redirect = f"https://{env.get('VERCEL_URL')}/auth/callback" if env.get("VERCEL_URL") else "http://localhost:5000/auth/callback"
+
     cfg = Config(
         gmail_credentials_path=s("GMAIL_CREDENTIALS_PATH", "credentials.json"),
         gmail_token_path=s("GMAIL_TOKEN_PATH", "token.json"),
@@ -81,7 +86,7 @@ def load_config(env: Optional[Mapping[str, str]] = None, require_gemini: bool = 
         poll_interval=_get_num(env, "POLL_INTERVAL", 60, int, 5, 86400),
         confidence_threshold=_get_num(env, "CONFIDENCE_THRESHOLD", 0.85, float, 0.0, 1.0),
         review_threshold=_get_num(env, "REVIEW_THRESHOLD", 0.60, float, 0.0, 1.0),
-        database_path=s("DATABASE_PATH", "data/emails.db"),
+        database_path=s("DATABASE_PATH", default_db),
         spam_policy=s("SPAM_POLICY", "quarantine").lower(),
         dry_run=_get_bool(env, "DRY_RUN", False),
         max_attempts=_get_num(env, "MAX_ATTEMPTS", 5, int, 1, 50),
@@ -93,9 +98,9 @@ def load_config(env: Optional[Mapping[str, str]] = None, require_gemini: bool = 
         dashboard_host=s("DASHBOARD_HOST", "127.0.0.1"),
         dashboard_port=_get_num(env, "DASHBOARD_PORT", 5000, int, 1, 65535),
         dashboard_show_subject=_get_bool(env, "DASHBOARD_SHOW_SUBJECT", True),
-        log_dir=s("LOG_DIR", "logs"),
+        log_dir=s("LOG_DIR", default_log),
         log_level=s("LOG_LEVEL", "INFO").upper(),
-        google_redirect_uri=s("GOOGLE_REDIRECT_URI", "http://localhost:5000/auth/callback"),
+        google_redirect_uri=s("GOOGLE_REDIRECT_URI", default_redirect),
     )
     if cfg.spam_policy not in SPAM_POLICIES:
         raise ConfigError(f"SPAM_POLICY must be one of {SPAM_POLICIES}, got {cfg.spam_policy!r}")

@@ -67,12 +67,16 @@ class Worker:
 
     def process_user(self, user: dict) -> int:
         user_id = user["id"]
+        if user_id == "demo@example.com":
+            return 0
         def on_refresh(new_token: str):
             self.db.upsert_user(user_id, user["email"], new_token)
+
+        user_cfg = self._get_user_config(user_id)
             
         client = GmailClient(self.cfg.gmail_credentials_path, token_json_str=user["token_json"], on_token_refresh=on_refresh)
         reader = self.reader_factory(client, self.db, self.cfg.initial_lookback_days, user_id)
-        actions = self.actions_factory(client, self.cfg.dry_run)
+        actions = self.actions_factory(client, user_cfg.dry_run)
         
         # Discover
         try:
@@ -100,7 +104,7 @@ class Worker:
             if self._stop:
                 break
             try:
-                if self.process_message(message_id, user_id, reader, actions):
+                if self.process_message(message_id, user_id, reader, actions, user_cfg=user_cfg):
                     count += 1
             except GmailAuthError:
                 break
@@ -108,11 +112,29 @@ class Worker:
                 log.exception("Unexpected error on %s", message_id)
         return count
 
-    def process_message(self, message_id: str, user_id: str, reader, actions) -> bool:
-        attempts = self.db.claim(message_id, self.cfg.max_attempts, STALE_SECONDS)
+    def _get_user_config(self, user_id: str) -> Config:
+        user = self.db.get_user(user_id) if hasattr(self.db, "get_user") else None
+        user_settings = {}
+        if user and user.get("settings"):
+            try:
+                import json
+                user_settings = json.loads(user["settings"]) if isinstance(user["settings"], str) else user["settings"]
+            except Exception:
+                user_settings = {}
+        from dataclasses import replace
+        return replace(
+            self.cfg,
+            confidence_threshold=float(user_settings.get("confidence_threshold", self.cfg.confidence_threshold)),
+            spam_policy=str(user_settings.get("spam_policy", self.cfg.spam_policy)),
+            dry_run=bool(user_settings.get("dry_run", self.cfg.dry_run))
+        )
+
+    def process_message(self, message_id: str, user_id: str, reader, actions, user_cfg: Config = None) -> bool:
+        active_cfg = user_cfg or self._get_user_config(user_id)
+        attempts = self.db.claim(message_id, active_cfg.max_attempts, STALE_SECONDS)
         if attempts is None:
             return False
-        final_attempt = attempts >= self.cfg.max_attempts
+        final_attempt = attempts >= active_cfg.max_attempts
         self.db.log(message_id, "INFO", "claimed", f"attempt {attempts}")
 
         try:
@@ -134,7 +156,7 @@ class Worker:
             return False
 
         rules = analyze(email)
-        payload = build_llm_payload(email, rules, self.cfg.max_body_chars)
+        payload = build_llm_payload(email, rules, active_cfg.max_body_chars)
         try:
             cls = self.classifier.classify(payload)
         except ClassificationError as exc:
@@ -147,9 +169,9 @@ class Worker:
         if not cls.valid:
             self.db.log(message_id, "WARNING", "llm_invalid", cls.error or "")
 
-        decision = decide(cls, rules, self.cfg)
+        decision = decide(cls, rules, active_cfg)
         try:
-            self._execute(message_id, email, cls, decision, actions)
+            self._execute(message_id, email, cls, decision, actions, active_cfg)
         except GmailError as exc:
             self._fail(message_id, "action", exc, count=not isinstance(exc, (GmailTransientError, GmailAuthError)))
             if isinstance(exc, GmailAuthError):
@@ -161,10 +183,11 @@ class Worker:
         self.db.log(message_id, "INFO", "completed", f"{cls.category}/{cls.priority} conf={cls.confidence:.2f} -> {decision.summary}")
         return True
 
-    def _execute(self, message_id: str, email: Email, cls: Classification, decision, actions) -> None:
+    def _execute(self, message_id: str, email: Email, cls: Classification, decision, actions, cfg: Config = None) -> None:
+        active_cfg = cfg or self.cfg
         add = [a.value for a in decision.actions if a.kind == "add_label"]
         remove_inbox = any(a.kind == "remove_inbox" for a in decision.actions)
-        suffix = " (dry-run)" if self.cfg.dry_run else ""
+        suffix = " (dry-run)" if active_cfg.dry_run else ""
 
         if add or remove_inbox:
             self._gmail(lambda: actions.apply(message_id, add, remove_inbox), "Gmail label update")

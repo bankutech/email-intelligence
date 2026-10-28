@@ -1,166 +1,299 @@
 <template>
-  <div class="max-w-4xl mx-auto space-y-12 pb-12 animate-slide-up">
-    <div>
-      <h2 class="font-display font-bold text-3xl text-nyalaslate mb-2">Settings</h2>
-      <p class="text-nyalaslate/60 text-lg">Configure your email intelligence preferences</p>
-    </div>
-
-    <div v-if="loading" class="flex flex-col gap-8 animate-pulse">
-      <div class="h-32 bg-nyalaslate/5 rounded-2xl" v-for="i in 3" :key="i"></div>
-    </div>
+  <div class="space-y-8 animate-fade pb-12 max-w-4xl mx-auto">
     
-    <div v-else class="space-y-8">
+    <!-- Header -->
+    <div class="bg-surface p-4 sm:p-5 rounded-xl border border-border shadow-xs">
+      <h2 class="text-base sm:text-lg font-semibold text-ink font-serif tracking-tight">System & Automation Settings</h2>
+      <p class="text-xs text-ink-muted mt-0.5">Tune classification thresholds, spam quarantine protocol, and workspace preferences.</p>
+    </div>
+
+    <!-- Alert / Message -->
+    <div v-if="statusMsg" :class="['p-3.5 rounded-lg text-xs font-medium border flex items-center justify-between', statusError ? 'bg-status-dangerBg text-status-danger border-status-dangerBorder' : 'bg-status-successBg text-status-success border-status-successBorder']">
+      <span>{{ statusMsg }}</span>
+      <button @click="statusMsg = ''" class="hover:opacity-75 font-mono text-sm">&times;</button>
+    </div>
+
+    <!-- Demo Workspace Management Card (If Demo active) -->
+    <div v-if="user?.is_demo" class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+          <h3 class="text-sm font-semibold text-amber-800">Demo Workspace Active</h3>
+        </div>
+        <button
+          @click="resetDemo"
+          :disabled="isResettingDemo"
+          class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-surface border border-amber-500/30 text-amber-900 hover:bg-surface/80 shadow-xs transition-all disabled:opacity-50"
+        >
+          {{ isResettingDemo ? 'Resetting...' : 'Reset Demo Data' }}
+        </button>
+      </div>
+      <p class="text-xs text-ink-secondary leading-relaxed">
+        You are currently exploring Email Automata in isolated demo mode. Actions and category corrections will not touch any real Google accounts. Use the reset button above to restore the initial 8 sample emails at any time.
+      </p>
+    </div>
+
+    <!-- Connected Account Card -->
+    <div class="bg-surface rounded-xl border border-border shadow-xs p-5 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-border-subtle">
+        <h3 class="text-sm font-semibold text-ink">Account & Authorization</h3>
+        <span class="px-2 py-0.5 rounded text-[11px] font-mono bg-status-successBg text-status-success border border-status-successBorder">
+          OAuth 2.0 Scoped
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div class="p-3 rounded-lg bg-canvas-subtle border border-border-subtle space-y-1">
+          <span class="text-ink-muted uppercase font-mono block text-[10px]">Connected Address</span>
+          <span class="font-mono font-semibold text-ink break-all">{{ user?.email || 'Unknown' }}</span>
+        </div>
+        <div class="p-3 rounded-lg bg-canvas-subtle border border-border-subtle space-y-1">
+          <span class="text-ink-muted uppercase font-mono block text-[10px]">Permission Scope</span>
+          <span class="font-mono text-ink">gmail.modify (Labels & Inbox only)</span>
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-between items-center text-xs text-ink-muted">
+        <span>Permanent deletion is mathematically prevented by API scope limitations.</span>
+        <button @click="$emit('logout')" class="text-status-danger hover:underline font-semibold">
+          Disconnect Account
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Settings Form -->
+    <div class="bg-surface rounded-xl border border-border shadow-xs p-5 sm:p-6 space-y-6">
       
-      <div class="bg-nyalawhite border border-nyalaslate/10 shadow-sm rounded-3xl p-8 space-y-10">
-        
-        <div>
-          <label class="flex justify-between text-sm font-bold uppercase tracking-wider text-nyalaslate/70 mb-4">
-            <span>Confidence Threshold</span>
-            <span class="text-nyalablue">{{ Math.round(settings.confidence_threshold * 100) }}%</span>
-          </label>
-          <input type="range" v-model.number="settings.confidence_threshold" min="0.5" max="1.0" step="0.01" class="w-full h-2 bg-nyalaslate/10 rounded-full appearance-none cursor-pointer outline-none slider-nyalablue">
-          <p class="text-sm text-nyalaslate/60 mt-4 leading-relaxed">
-            Required confidence before automation takes effect. Items below this threshold are placed in the Review Queue.
-          </p>
-        </div>
-        
-        <div class="border-t border-nyalaslate/10 pt-8">
-          <label class="block text-sm font-bold uppercase tracking-wider text-nyalaslate/70 mb-4">Spam Protocol</label>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <label class="relative flex cursor-pointer group">
-              <input type="radio" v-model="settings.spam_policy" value="label" class="peer sr-only" name="spam_policy">
-              <div class="w-full p-4 rounded-xl border border-nyalaslate/10 text-center peer-checked:bg-nyalablue peer-checked:text-nyalawhite peer-checked:border-nyalablue transition-all hover:border-nyalablue/50">
-                <div class="font-bold text-sm uppercase tracking-wider">Label</div>
-              </div>
-            </label>
-            <label class="relative flex cursor-pointer group">
-              <input type="radio" v-model="settings.spam_policy" value="quarantine" class="peer sr-only" name="spam_policy">
-              <div class="w-full p-4 rounded-xl border border-nyalaslate/10 text-center peer-checked:bg-nyalablue peer-checked:text-nyalawhite peer-checked:border-nyalablue transition-all hover:border-nyalablue/50">
-                <div class="font-bold text-sm uppercase tracking-wider">Quarantine</div>
-              </div>
-            </label>
-            <label class="relative flex cursor-pointer group">
-              <input type="radio" v-model="settings.spam_policy" value="spam" class="peer sr-only" name="spam_policy">
-              <div class="w-full p-4 rounded-xl border border-nyalaslate/10 text-center peer-checked:bg-danger peer-checked:text-nyalawhite peer-checked:border-danger transition-all hover:border-danger/50">
-                <div class="font-bold text-sm uppercase tracking-wider">Hard Spam</div>
-              </div>
-            </label>
+      <!-- 1. Confidence Threshold -->
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="text-xs font-semibold uppercase tracking-wider text-ink block">Automation Confidence Threshold</label>
+            <p class="text-xs text-ink-muted mt-0.5">Emails classified with a confidence score equal to or higher than this percentage are handled automatically.</p>
           </div>
+          <span class="text-lg font-mono font-semibold text-brand px-3 py-1 rounded-lg bg-brand-subtle border border-brand/20">
+            {{ Math.round(settings.confidence_threshold * 100) }}%
+          </span>
         </div>
-        
-        <div class="border-t border-nyalaslate/10 pt-8">
-          <label class="flex items-start gap-4 cursor-pointer group">
-            <div class="relative flex items-center mt-1">
-              <input type="checkbox" v-model="settings.dry_run" class="peer sr-only">
-              <div class="w-6 h-6 rounded border-2 border-nyalaslate/20 bg-nyalawhite peer-checked:bg-nyalablue peer-checked:border-nyalablue transition-colors"></div>
-              <svg class="absolute inset-0 w-6 h-6 text-nyalawhite pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+
+        <input
+          type="range"
+          v-model.number="settings.confidence_threshold"
+          min="0.50"
+          max="1.00"
+          step="0.01"
+          class="w-full h-2 bg-canvas-muted rounded-lg appearance-none cursor-pointer"
+        />
+
+        <div class="flex justify-between text-[11px] font-mono text-ink-muted">
+          <span>50% (Aggressive)</span>
+          <span class="text-brand font-medium">85% (Recommended Default)</span>
+          <span>100% (Manual Triage)</span>
+        </div>
+      </div>
+
+      <!-- 2. Spam Protocol -->
+      <div class="space-y-3 pt-6 border-t border-border-subtle">
+        <label class="text-xs font-semibold uppercase tracking-wider text-ink block">Spam Handling Protocol</label>
+        <p class="text-xs text-ink-muted">Choose how identified spam and phishing threats are safely isolated.</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <!-- Quarantine -->
+          <label
+            :class="[
+              'p-4 rounded-xl border cursor-pointer transition-all space-y-1 block',
+              settings.spam_policy === 'quarantine'
+                ? 'border-brand bg-brand-subtle/50 shadow-subtle'
+                : 'border-border bg-canvas-subtle hover:border-brand/40'
+            ]"
+          >
+            <input type="radio" v-model="settings.spam_policy" value="quarantine" class="sr-only" />
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-ink">Quarantine</span>
+              <span v-if="settings.spam_policy === 'quarantine'" class="w-2 h-2 rounded-full bg-brand"></span>
             </div>
-            <div>
-              <div class="text-sm font-bold uppercase tracking-wider text-nyalaslate/70">Dry Run Mode</div>
-              <p class="text-sm text-nyalaslate/60 mt-2 leading-relaxed">
-                Log actions without modifying Gmail state. Use this to safely test new rules.
-              </p>
+            <p class="text-[11px] text-ink-secondary leading-snug">
+              Applies <code>AI-QUARANTINE</code> and archives from INBOX. Safely isolated and reversible.
+            </p>
+          </label>
+
+          <!-- Label Only -->
+          <label
+            :class="[
+              'p-4 rounded-xl border cursor-pointer transition-all space-y-1 block',
+              settings.spam_policy === 'label'
+                ? 'border-brand bg-brand-subtle/50 shadow-subtle'
+                : 'border-border bg-canvas-subtle hover:border-brand/40'
+            ]"
+          >
+            <input type="radio" v-model="settings.spam_policy" value="label" class="sr-only" />
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-ink">Label Only</span>
+              <span v-if="settings.spam_policy === 'label'" class="w-2 h-2 rounded-full bg-brand"></span>
             </div>
+            <p class="text-[11px] text-ink-secondary leading-snug">
+              Adds <code>AI-SPAM</code> tag but keeps the email in INBOX for manual review.
+            </p>
+          </label>
+
+          <!-- Hard Spam -->
+          <label
+            :class="[
+              'p-4 rounded-xl border cursor-pointer transition-all space-y-1 block',
+              settings.spam_policy === 'spam'
+                ? 'border-status-danger bg-status-dangerBg/50 shadow-subtle'
+                : 'border-border bg-canvas-subtle hover:border-status-danger/40'
+            ]"
+          >
+            <input type="radio" v-model="settings.spam_policy" value="spam" class="sr-only" />
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-ink">Mark as Spam</span>
+              <span v-if="settings.spam_policy === 'spam'" class="w-2 h-2 rounded-full bg-status-danger"></span>
+            </div>
+            <p class="text-[11px] text-ink-secondary leading-snug">
+              Moves message directly to Gmail's native Spam folder.
+            </p>
           </label>
         </div>
       </div>
-      
-      <div class="flex items-center gap-6">
-        <button @click="save" :disabled="saving" class="px-8 py-4 rounded-full bg-nyalablue text-nyalawhite font-medium shadow-md shadow-nyalablue/20 hover:bg-nyalablue/90 hover:-translate-y-0.5 transition-all disabled:opacity-50 inline-flex items-center gap-3">
-          <svg v-if="saving" class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-          <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-          Save Configuration
-        </button>
 
-        <div v-if="saveMsg" :class="['px-4 py-2 font-medium text-sm rounded-lg', saveError ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success']" role="status">
-          {{ saveMsg }}
+      <!-- 3. Dry Run Toggle -->
+      <div class="space-y-3 pt-6 border-t border-border-subtle">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="text-xs font-semibold uppercase tracking-wider text-ink block">Dry-Run Simulation Mode</label>
+            <p class="text-xs text-ink-muted mt-0.5">When enabled, emails are fully classified and logged to SQLite, but no actual Gmail labels or archive actions are performed.</p>
+          </div>
+          
+          <button
+            type="button"
+            @click="settings.dry_run = !settings.dry_run"
+            :class="[
+              'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+              settings.dry_run ? 'bg-brand' : 'bg-canvas-muted'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-surface shadow-subtle ring-0 transition duration-200 ease-in-out',
+                settings.dry_run ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
         </div>
+      </div>
+
+      <!-- Submit Footer -->
+      <div class="pt-6 border-t border-border-subtle flex items-center justify-between">
+        <span class="text-xs text-ink-muted">Settings persist in SQLite user preferences.</span>
+        
+        <button
+          @click="saveSettings"
+          :disabled="isSaving"
+          class="px-5 py-2 text-xs font-semibold rounded-lg bg-brand text-surface hover:bg-brand-hover shadow-subtle transition-all disabled:opacity-50 inline-flex items-center gap-2"
+        >
+          <svg v-if="isSaving" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          {{ isSaving ? 'Saving...' : 'Save Configuration' }}
+        </button>
       </div>
 
     </div>
+
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 
+defineProps({
+  user: {
+    type: Object,
+    default: null
+  }
+})
+
+const emit = defineEmits(['logout', 'refresh'])
+
 const settings = ref({
   confidence_threshold: 0.85,
   spam_policy: 'quarantine',
   dry_run: false
 })
-const loading = ref(true)
-const saving = ref(false)
-const saveMsg = ref('')
-const saveError = ref(false)
 
-const load = async () => {
-  loading.value = true
+const isSaving = ref(false)
+const isResettingDemo = ref(false)
+const statusMsg = ref('')
+const statusError = ref(false)
+
+const loadSettings = async () => {
   try {
     const res = await fetch('/api/settings')
     if (res.ok) {
-      settings.value = await res.json()
-      settings.value.confidence_threshold = parseFloat(settings.value.confidence_threshold) || 0.85
+      const data = await res.json()
+      settings.value = {
+        confidence_threshold: parseFloat(data.confidence_threshold) || 0.85,
+        spam_policy: data.spam_policy || 'quarantine',
+        dry_run: Boolean(data.dry_run)
+      }
     }
-  } finally {
-    loading.value = false
+  } catch (err) {
+    console.error(err)
   }
 }
 
-const save = async () => {
-  saving.value = true
-  saveMsg.value = ''
+const saveSettings = async () => {
+  isSaving.value = true
+  statusMsg.value = ''
   try {
-    const payload = {
-      ...settings.value,
-      confidence_threshold: parseFloat(settings.value.confidence_threshold)
-    }
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(settings.value)
     })
     if (res.ok) {
-      saveMsg.value = 'Settings saved.'
-      saveError.value = false
+      statusMsg.value = 'Settings saved successfully.'
+      statusError.value = false
     } else {
       const err = await res.json().catch(() => ({}))
-      saveMsg.value = err.detail || 'Save failed.'
-      saveError.value = true
+      statusMsg.value = err.detail || 'Failed to save settings.'
+      statusError.value = true
     }
-  } catch (e) {
-    saveMsg.value = 'Network error.'
-    saveError.value = true
+  } catch (err) {
+    statusMsg.value = 'Network error while saving settings.'
+    statusError.value = true
   } finally {
-    saving.value = false
-    setTimeout(() => { if (!saveError.value) saveMsg.value = '' }, 3000)
+    isSaving.value = false
+    setTimeout(() => { if (!statusError.value) statusMsg.value = '' }, 3500)
   }
 }
 
-onMounted(() => load())
-</script>
+const resetDemo = async () => {
+  if (!confirm('Reset demo workspace back to the initial 8 sample emails?')) return
+  isResettingDemo.value = true
+  statusMsg.value = ''
+  try {
+    const res = await fetch('/api/demo/reset', { method: 'POST' })
+    if (res.ok) {
+      statusMsg.value = 'Demo workspace successfully reset.'
+      statusError.value = false
+      emit('refresh')
+    } else {
+      statusMsg.value = 'Failed to reset demo workspace.'
+      statusError.value = true
+    }
+  } catch (err) {
+    statusMsg.value = 'Network error while resetting demo.'
+    statusError.value = true
+  } finally {
+    isResettingDemo.value = false
+    setTimeout(() => { if (!statusError.value) statusMsg.value = '' }, 3500)
+  }
+}
 
-<style scoped>
-.slider-nyalablue::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  background: #0C49A2;
-  cursor: pointer;
-  border-radius: 50%;
-  border: 4px solid #ffffff;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-.slider-nyalablue::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  background: #0C49A2;
-  cursor: pointer;
-  border-radius: 50%;
-  border: 4px solid #ffffff;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-</style>
+onMounted(() => {
+  loadSettings()
+})
+</script>

@@ -71,3 +71,42 @@ class SecretFilter(logging.Filter):
         record.msg = scrub_secrets(record.getMessage(), self._secrets)
         record.args = ()
         return True
+
+
+def _get_fernet(key: str):
+    import base64
+    import hashlib
+    from cryptography.fernet import Fernet
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    b64_key = base64.urlsafe_b64encode(digest)
+    return Fernet(b64_key)
+
+
+def encrypt_token(raw: str, secret_key: str) -> str:
+    """Encrypt sensitive OAuth token JSON before storing in the database."""
+    if not raw or not secret_key:
+        return raw
+    if raw.startswith("enc:"):
+        return raw
+    try:
+        f = _get_fernet(secret_key)
+        return "enc:" + f.encrypt(raw.encode("utf-8")).decode("utf-8")
+    except Exception as exc:
+        log.error("Token encryption failed: %s", exc)
+        return raw
+
+
+def decrypt_token(stored: str, secret_key: str) -> str:
+    """Decrypt token JSON read from the database; handles plaintext legacy tokens transparently."""
+    if not stored or not secret_key:
+        return stored
+    if stored.startswith("enc:"):
+        try:
+            from cryptography.fernet import InvalidToken
+            f = _get_fernet(secret_key)
+            return f.decrypt(stored[4:].encode("utf-8")).decode("utf-8")
+        except Exception as exc:
+            log.error("Failed to decrypt stored token: %s", exc)
+            return ""
+    return stored
+

@@ -16,8 +16,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import os
 from app.models import Classification, Email
-from app.utils import scrub_secrets, utcnow_iso
+from app.utils import scrub_secrets, utcnow_iso, encrypt_token, decrypt_token
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -81,6 +82,12 @@ CREATE TABLE IF NOT EXISTS state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state         TEXT PRIMARY KEY,
+    code_verifier TEXT,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_created ON oauth_states(created_at);
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(processing_status, attempts);
 CREATE INDEX IF NOT EXISTS idx_emails_user ON emails(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_class_msg ON classifications(message_id);
@@ -96,14 +103,20 @@ class DatabaseError(Exception):
 
 
 class Database:
-    def __init__(self, path: str, read_only: bool = False):
+    def __init__(self, path: str, read_only: bool = False, encryption_key: Optional[str] = None):
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._encryption_key = encryption_key if encryption_key is not None else (
+            os.environ.get("TOKEN_ENCRYPTION_KEY") or os.environ.get("SESSION_SECRET_KEY", "")
+        )
         try:
             self._conn = sqlite3.connect(path, timeout=30, check_same_thread=False, isolation_level=None)
             self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
+            try:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                pass
             self._conn.execute("PRAGMA foreign_keys=ON")
             if not read_only:
                 self._conn.executescript(SCHEMA)
@@ -150,17 +163,30 @@ class Database:
     # ------------------------------------------------------------------- users
     def get_users(self) -> list:
         rows = self._run("SELECT * FROM users", (), "all")
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("token_json") and self._encryption_key:
+                d["token_json"] = decrypt_token(d["token_json"], self._encryption_key)
+            result.append(d)
+        return result
 
     def get_user(self, user_id: str):
-        return self._run("SELECT * FROM users WHERE id=?", (user_id,), "one")
+        row = self._run("SELECT * FROM users WHERE id=?", (user_id,), "one")
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("token_json") and self._encryption_key:
+            d["token_json"] = decrypt_token(d["token_json"], self._encryption_key)
+        return d
 
     def upsert_user(self, user_id: str, email: str, token_json: str):
         now = utcnow_iso()
+        stored_token = encrypt_token(token_json, self._encryption_key) if (self._encryption_key and token_json) else token_json
         self._run(
             "INSERT INTO users(id, email, token_json, created_at) VALUES(?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET email=excluded.email, token_json=excluded.token_json",
-            (user_id, email, token_json, now)
+            (user_id, email, stored_token, now)
         )
         
     def update_user_settings(self, user_id: str, settings: str):
@@ -275,26 +301,138 @@ class Database:
         cats = {r["category"]: r["n"] for r in self._run(
             f"SELECT category, COUNT(*) AS n FROM ({latest}) GROUP BY category", params, "all")}
             
+        priorities = {r["priority"]: r["n"] for r in self._run(
+            f"SELECT priority, COUNT(*) AS n FROM ({latest}) GROUP BY priority", params, "all")}
+
+        total_proc = one(f"SELECT COUNT(*) FROM emails WHERE processing_status IN ('done','review') {'AND user_id=?' if user_id else ''}", params)
+        needs_rev = one(f"SELECT COUNT(*) FROM emails WHERE processing_status='review' {'AND user_id=?' if user_id else ''}", params)
+        
+        avg_row = self._run(f"SELECT AVG(confidence) AS avg_c FROM ({latest})", params, "one")
+        avg_conf = round(float(avg_row["avg_c"]), 3) if avg_row and avg_row["avg_c"] is not None else 0.0
+        
+        auto_count = max(total_proc - needs_rev, 0)
+        auto_rate = round((auto_count / total_proc * 100), 1) if total_proc > 0 else 100.0
+
         return {
-            "total_processed": one(f"SELECT COUNT(*) FROM emails WHERE processing_status IN ('done','review') {'AND user_id=?' if user_id else ''}", params),
-            "needs_review": one(f"SELECT COUNT(*) FROM emails WHERE processing_status='review' {'AND user_id=?' if user_id else ''}", params),
+            "total_processed": total_proc,
+            "needs_review": needs_rev,
             "failed": one(f"SELECT COUNT(*) FROM emails WHERE processing_status='failed' {'AND user_id=?' if user_id else ''}", params),
             "pending": one(f"SELECT COUNT(*) FROM emails WHERE processing_status IN ('pending','processing') {'AND user_id=?' if user_id else ''}", params),
             "high_priority": one(f"SELECT COUNT(*) FROM ({latest}) WHERE priority='high'", params),
             "categories": cats,
+            "priorities": priorities,
+            "avg_confidence": avg_conf,
+            "automated_count": auto_count,
+            "automation_rate": auto_rate,
         }
 
-    def recent(self, user_id: str = None, limit: int = 50) -> list:
+    def recent(self, user_id: str = None, limit: int = 100) -> list:
         cond = "AND e.user_id = ?" if user_id else ""
         params = (user_id, limit) if user_id else (limit,)
         rows = self._run(
             f"SELECT e.message_id, e.subject, e.processing_status AS status, e.updated_at, "
-            f"e.sender AS sender_email, e.email_timestamp, "
-            f"c.category, c.priority, c.confidence, c.reason, "
+            f"e.sender AS sender_email, e.email_timestamp, e.labels, e.attachments, "
+            f"c.category, c.priority, c.confidence, c.reason, c.rule_flags, c.model, "
             f"(SELECT group_concat(a.action || CASE WHEN a.detail != '' THEN ':' || a.detail ELSE '' END, ', ') "
             f" FROM actions a WHERE a.message_id = e.message_id AND a.success = 1) AS actions "
             f"FROM emails e LEFT JOIN classifications c "
             f"ON c.id = (SELECT MAX(id) FROM classifications WHERE message_id = e.message_id) "
             f"WHERE e.processing_status NOT IN ('pending') {cond} ORDER BY e.updated_at DESC LIMIT ?",
             params, "all")
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            for k in ("rule_flags", "labels", "attachments"):
+                if d.get(k) and isinstance(d[k], str):
+                    try:
+                        d[k] = json.loads(d[k])
+                    except Exception:
+                        d[k] = []
+                elif not d.get(k):
+                    d[k] = []
+            result.append(d)
+        return result
+
+    def get_email_detail(self, message_id: str, user_id: str = None) -> Optional[dict]:
+        cond = "AND user_id = ?" if user_id else ""
+        params = (message_id, user_id) if user_id else (message_id,)
+        row = self._run(f"SELECT * FROM emails WHERE message_id=? {cond}", params, "one")
+        if not row:
+            return None
+        d = dict(row)
+        for k in ("labels", "attachments", "recipients"):
+            if d.get(k) and isinstance(d[k], str):
+                try:
+                    d[k] = json.loads(d[k])
+                except Exception:
+                    d[k] = []
+            elif not d.get(k):
+                d[k] = []
+        # Classifications history
+        clist = self._run("SELECT * FROM classifications WHERE message_id=? ORDER BY id DESC", (message_id,), "all")
+        d["classifications"] = [dict(c) for c in clist]
+        for c in d["classifications"]:
+            if c.get("rule_flags") and isinstance(c["rule_flags"], str):
+                try:
+                    c["rule_flags"] = json.loads(c["rule_flags"])
+                except Exception:
+                    c["rule_flags"] = []
+        # Actions history
+        alist = self._run("SELECT * FROM actions WHERE message_id=? ORDER BY id ASC", (message_id,), "all")
+        d["actions_history"] = [dict(a) for a in alist]
+        # Logs
+        llist = self._run("SELECT * FROM processing_logs WHERE message_id=? ORDER BY id ASC", (message_id,), "all")
+        d["logs"] = [dict(l) for l in llist]
+        return d
+
+    def update_email_category(self, message_id: str, new_category: str, detail: str = "") -> None:
+        now = utcnow_iso()
+        latest = self._run("SELECT * FROM classifications WHERE message_id=? ORDER BY id DESC LIMIT 1", (message_id,), "one")
+        prio = latest["priority"] if latest else "normal"
+        model = latest["model"] if latest else "manual"
+        reason = f"Human review: {detail or 'Category updated by user'}"
+        self._run(
+            "INSERT INTO classifications(message_id, timestamp, category, priority, confidence, reason, model, rule_flags, llm_valid) "
+            "VALUES(?, ?, ?, ?, 1.0, ?, ?, '[]', 1)",
+            (message_id, now, new_category, prio, reason, model)
+        )
+        self.set_status(message_id, "done")
+        self.record_action(message_id, "manual_category_change", f"Category corrected to {new_category}")
+
+    def reset_demo_data(self, user_id: str = "demo@example.com") -> None:
+        demo_mids = [r["message_id"] for r in self._run("SELECT message_id FROM emails WHERE user_id=?", (user_id,), "all")]
+        for mid in demo_mids:
+            self._run("DELETE FROM processing_logs WHERE message_id=?", (mid,))
+            self._run("DELETE FROM actions WHERE message_id=?", (mid,))
+            self._run("DELETE FROM classifications WHERE message_id=?", (mid,))
+        self._run("DELETE FROM emails WHERE user_id=?", (user_id,))
+        self.upsert_user(user_id, user_id, json.dumps({"token": "demo_token"}))
+
+    def save_oauth_state(self, state: str, code_verifier: str = "") -> None:
+        """Store OAuth state and PKCE verifier with auto-cleanup of states older than 15 minutes."""
+        now = utcnow_iso()
+        import datetime
+        cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
+        self._run("DELETE FROM oauth_states WHERE created_at < ?", (cutoff,))
+        self._run(
+            "INSERT OR REPLACE INTO oauth_states(state, code_verifier, created_at) VALUES(?, ?, ?)",
+            (state, code_verifier or "", now)
+        )
+
+    def consume_oauth_state(self, state: str) -> Optional[dict]:
+        """Validate and atomically consume (delete) a state to prevent replay attacks.
+        Returns dict with code_verifier if valid, or None if expired or not found.
+        """
+        import datetime
+        row = self._run("SELECT code_verifier, created_at FROM oauth_states WHERE state=?", (state,), "one")
+        if not row:
+            return None
+        self._run("DELETE FROM oauth_states WHERE state=?", (state,))
+        try:
+            created_dt = datetime.datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+            age = (datetime.datetime.now(datetime.timezone.utc) - created_dt).total_seconds()
+            if age > 900:  # 15 minutes TTL
+                return None
+        except Exception:
+            pass
+        return {"code_verifier": row["code_verifier"]}
