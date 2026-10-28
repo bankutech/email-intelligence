@@ -46,13 +46,21 @@ class VercelPathMiddleware:
                 params = urllib.parse.parse_qs(query_string)
                 if "__path__" in params:
                     raw_subpath = params.pop("__path__")[0].lstrip("/")
-                    # If subpath starts with auth/, map to /auth/..., otherwise map to /api/...
-                    if raw_subpath.startswith("auth/"):
+                    if not raw_subpath or raw_subpath in ("index.html", "index"):
+                        scope["path"] = "/"
+                    elif raw_subpath.startswith("auth/"):
                         scope["path"] = f"/{raw_subpath}"
+                    elif raw_subpath.startswith("assets/"):
+                        scope["path"] = f"/{raw_subpath}"
+                    elif raw_subpath == "favicon.ico":
+                        scope["path"] = "/favicon.ico"
                     else:
                         scope["path"] = f"/api/{raw_subpath}"
                     scope["raw_path"] = scope["path"].encode("utf-8")
                     scope["query_string"] = urllib.parse.urlencode(params, doseq=True).encode("utf-8")
+            elif scope.get("path") in ("/api/index.py", "/api/index", "/api/"):
+                scope["path"] = "/"
+                scope["raw_path"] = b"/"
         await self.inner_app(scope, receive, send)
 
 

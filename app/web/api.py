@@ -632,6 +632,7 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
     if assets_path.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
+    @app.get("/index.html", response_class=HTMLResponse)
     @app.get("/", response_class=HTMLResponse)
     async def index():
         frontend_path = frontend_dist / "index.html"
