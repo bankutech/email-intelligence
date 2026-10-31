@@ -230,7 +230,7 @@ class Database:
             "SELECT message_id FROM emails WHERE user_id=? AND ("
             "(processing_status IN ('pending','failed') AND attempts < ?) "
             "OR (processing_status='processing' AND updated_at < ?)) "
-            "ORDER BY first_seen_at LIMIT ?",
+            "ORDER BY rowid DESC LIMIT ?",
             (user_id, max_attempts, utcnow_iso(-stale_seconds), limit), "all")
         return [r["message_id"] for r in rows]
 
@@ -337,7 +337,7 @@ class Database:
             f" FROM actions a WHERE a.message_id = e.message_id AND a.success = 1) AS actions "
             f"FROM emails e LEFT JOIN classifications c "
             f"ON c.id = (SELECT MAX(id) FROM classifications WHERE message_id = e.message_id) "
-            f"WHERE e.processing_status NOT IN ('pending') {cond} ORDER BY e.updated_at DESC LIMIT ?",
+            f"WHERE e.processing_status NOT IN ('pending') {cond} ORDER BY COALESCE(e.email_timestamp, e.updated_at) DESC LIMIT ?",
             params, "all")
         result = []
         for r in rows:

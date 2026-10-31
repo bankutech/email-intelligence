@@ -181,6 +181,14 @@ class Worker:
         status = "review" if decision.needs_review else "done"
         self.db.set_status(message_id, status)
         self.db.log(message_id, "INFO", "completed", f"{cls.category}/{cls.priority} conf={cls.confidence:.2f} -> {decision.summary}")
+        try:
+            from app.firebase_sync import sync_email_to_firestore, sync_stats_to_firestore
+            detail = self.db.get_email_detail(message_id, user_id)
+            if detail:
+                sync_email_to_firestore(detail)
+            sync_stats_to_firestore(self.db.stats(user_id))
+        except Exception as sync_exc:
+            log.debug("Firestore sync error: %s", sync_exc)
         return True
 
     def _execute(self, message_id: str, email: Email, cls: Classification, decision, actions, cfg: Config = None) -> None:

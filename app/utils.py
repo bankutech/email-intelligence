@@ -30,18 +30,26 @@ def retry_with_backoff(fn: Callable, *, is_transient: Callable[[Exception], bool
                 raise
             delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
             delay += random.uniform(0, delay * 0.1)
-            
+
             exc_str = str(exc)
+            server_delay = None
             m = re.search(r"Please retry in (\d+(?:\.\d+)?)s", exc_str)
             if m:
                 server_delay = float(m.group(1))
-                delay = max(delay, server_delay + 1.0)
             else:
                 m = re.search(r"'retryDelay':\s*'(\d+(?:\.\d+)?)s'", exc_str)
                 if m:
                     server_delay = float(m.group(1))
-                    delay = max(delay, server_delay + 1.0)
-                    
+
+            if server_delay is not None:
+                if server_delay > max_delay:
+                    log.warning("%s server requested delay %.1fs exceeds max_delay %.1fs (quota exhausted); aborting retry.",
+                                what, server_delay, max_delay)
+                    raise
+                delay = min(max_delay, max(delay, server_delay + 1.0))
+            else:
+                delay = min(max_delay, delay)
+
             log.warning("%s failed (attempt %d/%d): %s - retrying in %.1fs",
                         what, attempt, max_attempts, scrub_secrets(exc_str), delay)
             sleep(delay)

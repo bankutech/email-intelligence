@@ -45,7 +45,7 @@ class Config:
     google_client_secret: str = field(default="", repr=False)
     google_credentials_json: str = field(default="", repr=False)
     gemini_api_key: str = field(default="", repr=False)
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     poll_interval: int = 60
     confidence_threshold: float = 0.85
     review_threshold: float = 0.60
@@ -88,7 +88,7 @@ def load_config(env: Optional[Mapping[str, str]] = None, require_gemini: bool = 
         google_client_secret=s("GOOGLE_CLIENT_SECRET", ""),
         google_credentials_json=s("GOOGLE_CREDENTIALS_JSON", "") or s("GMAIL_CREDENTIALS_JSON", ""),
         gemini_api_key=s("GEMINI_API_KEY", ""),
-        gemini_model=s("GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_model=s("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         poll_interval=_get_num(env, "POLL_INTERVAL", 60, int, 5, 86400),
         confidence_threshold=_get_num(env, "CONFIDENCE_THRESHOLD", 0.85, float, 0.0, 1.0),
         review_threshold=_get_num(env, "REVIEW_THRESHOLD", 0.60, float, 0.0, 1.0),

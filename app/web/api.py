@@ -500,6 +500,11 @@ def create_app(cfg: Config, db: Database = None) -> FastAPI:
                                                  max_retries=cfg.llm_max_retries, base_delay=cfg.retry_base_delay)
                     worker = Worker(cfg, db, classifier, Notifier(cfg.notify_webhook_url))
                     worker.process_user(dict(user))
+                    try:
+                        from app.firebase_sync import sync_all_to_firestore
+                        sync_all_to_firestore(db, user_id=user_id)
+                    except Exception as fs_exc:
+                        log.debug("Firestore bulk sync error: %s", fs_exc)
                 finally:
                     with _active_sync_lock:
                         _active_sync_users.discard(user_id)

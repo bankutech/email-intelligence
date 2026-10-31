@@ -130,7 +130,7 @@ class GmailReader:
             token = resp.get("nextPageToken")
             if not token:
                 break
-        return list(dict.fromkeys(ids)), newest
+        return list(dict.fromkeys(reversed(ids))), newest
 
     def _list_recent(self) -> list:
         ids, token = [], None
